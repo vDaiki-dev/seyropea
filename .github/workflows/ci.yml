@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust · check, fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf pkg-config build-essential
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.100.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Formato
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Tests unitarios
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  frontend:
+    name: Frontend · sintaxis y assets locales
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar módulos JavaScript
+        working-directory: src/frontend
+        run: |
+          for f in *.js; do node --check "$f"; done
+      - name: Verificar bibliotecas vendorizadas y licencias
+        run: |
+          test -f src/frontend/vendor/upng/UPNG.js
+          test -f src/frontend/vendor/upng/pako.min.js
+          test -f src/frontend/vendor/upng/LICENSE-UPNG.txt
+          test -f src/frontend/vendor/upng/LICENSE-pako.txt
+          test -f LICENSE
+          test -f src-tauri/icons/icon.ico
+          test -f src-tauri/icons/icon.icns
+          printf '%s\n' "OK: bundle 100% local"
+      - name: Verificar que no hay referencias remotas en runtime
+        run: |
+          if grep -RInE 'https?://(cdn|unpkg|jsdelivr|fonts\.google)' src/frontend --include='*.js' --include='*.html' --include='*.css'; then
+            echo 'ERROR: se detectó una dependencia remota' >&2
+            exit 1
+          fi
+          echo 'OK: sin CDNs en el frontend'
