@@ -39,7 +39,11 @@ Para el frontend (no hay npm install):
 ```bash
 cd src/frontend
 for f in *.js; do node --check "$f"; done
+cd ..
+node tests/frontend.test.mjs
 ```
+
+Las pruebas frontend son puras: no necesitan navegador ni `npm install`. Comprueban el determinismo de los 18 filtros, utilidades RGBA/HSL y el historial.
 
 Y una prueba manual de arranque:
 

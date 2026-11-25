@@ -52,6 +52,8 @@ jobs:
         working-directory: src/frontend
         run: |
           for f in *.js; do node --check "$f"; done
+      - name: Pruebas deterministas del frontend
+        run: node tests/frontend.test.mjs
       - name: Verificar bibliotecas vendorizadas y licencias
         run: |
           test -f src/frontend/vendor/upng/UPNG.js
