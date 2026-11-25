@@ -479,19 +479,21 @@ const TOOL_DEFS = [
     onDown(editor, ctx) {
       const opts = editor.toolOptions.text;
       const size = Number(opts.fontSize) || 40;
-      const layer = editor.doc.createLayer({
-        name: 'Texto',
-        kind: 'text',
-        x: Math.round(ctx.x), y: Math.round(ctx.y),
-        width: Math.max(40, Math.ceil(String(opts.text).length * size * 0.62)),
-        height: Math.ceil(size * 1.5 * String(opts.text).split('\n').length),
-        text: {
-          text: opts.text, fontFamily: opts.fontFamily, fontSize: size, weight: 400,
-          color: opts.color || editor.state.fgColor, align: 'left', lineHeight: 1.2,
-        },
+      let layer;
+      editor.pushStructural('Nuevo texto', () => {
+        layer = editor.doc.createLayer({
+          name: 'Texto',
+          kind: 'text',
+          x: Math.round(ctx.x), y: Math.round(ctx.y),
+          width: Math.max(40, Math.ceil(String(opts.text).length * size * 0.62)),
+          height: Math.ceil(size * 1.5 * String(opts.text).split('\n').length),
+          text: {
+            text: opts.text, fontFamily: opts.fontFamily, fontSize: size, weight: 400,
+            color: opts.color || editor.state.fgColor, align: 'left', lineHeight: 1.2,
+          },
+        });
+        renderTextLayer(layer);
       });
-      renderTextLayer(layer);
-      editor.doc.invalidate();
       editor.ui.openTextEditor?.(layer);
     },
   },
@@ -515,16 +517,17 @@ const TOOL_DEFS = [
       editor.state.previewRect = null;
       if (!s.rect || s.rect.width < 3 || s.rect.height < 3) return;
       const opts = editor.toolOptions.shape;
-      const layer = editor.doc.createLayer({
-        name: opts.shape === 'ellipse' ? 'Elipse' : opts.shape === 'line' ? 'Línea' : 'Rectángulo',
-        kind: 'shape', x: s.rect.x, y: s.rect.y, width: s.rect.width, height: s.rect.height,
-        shape: {
-          shape: opts.shape, fill: opts.fill, stroke: opts.stroke,
-          strokeWidth: Number(opts.strokeWidth) || 0, radius: Number(opts.radius) || 0,
-        },
+      editor.pushStructural('Nueva forma', () => {
+        const layer = editor.doc.createLayer({
+          name: opts.shape === 'ellipse' ? 'Elipse' : opts.shape === 'line' ? 'Línea' : 'Rectángulo',
+          kind: 'shape', x: s.rect.x, y: s.rect.y, width: s.rect.width, height: s.rect.height,
+          shape: {
+            shape: opts.shape, fill: opts.fill, stroke: opts.stroke,
+            strokeWidth: Number(opts.strokeWidth) || 0, radius: Number(opts.radius) || 0,
+          },
+        });
+        renderShapeLayer(layer);
       });
-      renderShapeLayer(layer);
-      editor.doc.invalidate();
     },
   },
   {

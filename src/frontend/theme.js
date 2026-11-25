@@ -104,7 +104,7 @@ export class ThemeEngine {
     return [...BUILTIN_THEMES, ...this.customThemes()];
   }
 
-  find(id) {
+  find(id = this.currentId) {
     return this.allThemes().find((t) => t.id === id) || BUILTIN_THEMES[0];
   }
 

@@ -259,6 +259,10 @@ export class Editor {
     this.doc.markDirty(direction === 'undo');
   }
 
+  setTool(id) {
+    return this.tools?.setTool(id) || false;
+  }
+
   undo() {
     if (!this.history?.undo()) this.ui?.toast('No hay cambios para deshacer');
   }
