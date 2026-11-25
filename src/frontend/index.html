@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SeyroPea</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="titlebar">
+      <div class="brand">
+        <span class="brand-mark">◍</span>
+        <strong>SeyroPea</strong>
+        <span class="badge">OFFLINE · SIN IA</span>
+      </div>
+      <div class="document-title" id="document-title">Sin título</div>
+      <div class="theme-indicator"><span data-theme-label></span></div>
+    </header>
+
+    <div class="options-bar" id="tool-options"></div>
+
+    <div class="workspace">
+      <aside class="toolbar" id="toolbar" aria-label="Herramientas"></aside>
+
+      <main class="viewport-wrap">
+        <div class="tabbar" id="tabs"></div>
+        <div class="viewport" id="viewport">
+          <canvas id="editor-canvas" aria-label="Lienzo de edición"></canvas>
+        </div>
+      </main>
+
+      <aside class="dock">
+        <section class="panel color-panel">
+          <h2>Color</h2>
+          <div class="color-swatches">
+            <button class="swatch fg" id="fg-swatch" title="Color de primer plano"></button>
+            <button class="swatch bg" id="bg-swatch" title="Color de fondo"></button>
+            <button class="swap-colors" id="swap-colors" title="Intercambiar colores">⇄</button>
+          </div>
+          <label class="field"><span>Primer plano</span><input type="color" id="fg-color"></label>
+          <label class="field"><span>Fondo</span><input type="color" id="bg-color"></label>
+          <p class="hint">Doble clic en un color para copiarlo al portapapeles interno.</p>
+        </section>
+
+        <section class="panel history-panel">
+          <h2>Historial <small id="history-count"></small></h2>
+          <div class="history-actions">
+            <button id="undo-btn" title="Deshacer (Ctrl+Z)">↶ Deshacer</button>
+            <button id="redo-btn" title="Rehacer (Ctrl+Shift+Z)">↷ Rehacer</button>
+          </div>
+          <div class="history-list" id="history"></div>
+        </section>
+
+        <section class="panel layers-panel">
+          <h2>Capas <small id="layer-count"></small></h2>
+          <div class="layer-actions">
+            <button id="layer-add" title="Nueva capa">＋</button>
+            <button id="layer-dup" title="Duplicar capa">⧉</button>
+            <button id="layer-up" title="Subir capa">↑</button>
+            <button id="layer-down" title="Bajar capa">↓</button>
+            <button id="layer-del" title="Eliminar capa">🗑</button>
+          </div>
+          <div class="layer-list" id="layers"></div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="statusbar" id="status"></footer>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
