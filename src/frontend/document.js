@@ -8,6 +8,14 @@ export const BLEND_MODES = [
   'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'luminosity',
 ];
 
+export const BLEND_LABELS = {
+  normal: 'Normal', multiply: 'Multiplicar', screen: 'Pantalla', overlay: 'Superponer',
+  darken: 'Oscurecer', lighten: 'Aclarar', 'color-dodge': 'Sobreexponer',
+  'color-burn': 'Subexponer', 'hard-light': 'Luz dura', 'soft-light': 'Luz suave',
+  difference: 'Diferencia', exclusion: 'Exclusión', hue: 'Tono',
+  saturation: 'Saturación', luminosity: 'Luminosidad',
+};
+
 function makeCanvas(width, height) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.floor(width));

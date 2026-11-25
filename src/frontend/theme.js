@@ -121,6 +121,8 @@ export class ThemeEngine {
       root.style.setProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`, palette[key]);
     }
     root.style.setProperty('--accent-soft', `${palette.accent}22`);
+    root.style.setProperty('--checker-a', palette.surfaceAlt);
+    root.style.setProperty('--checker-b', palette.background);
     root.style.setProperty('--ui-font', `"${this.settings.fontFamily || 'sans-serif'}", system-ui, sans-serif`);
     root.style.setProperty('--mono-font', '"JetBrains Mono", "DejaVu Sans Mono", "Consolas", monospace');
     root.style.fontSize = `${clamp(Number(this.settings.fontSize) || 13, 10, 22) * (Number(this.settings.fontScale) || 100) / 100}px`;
@@ -128,6 +130,7 @@ export class ThemeEngine {
     document.querySelectorAll('[data-theme-label]').forEach((el) => {
       el.textContent = this.find().name;
     });
+    if (this.editor.ui) this.editor.ui._checker = null;
   }
 
   setTheme(id, save = true) {

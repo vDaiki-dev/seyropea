@@ -1,12 +1,14 @@
 // Interfaz de escritorio: paneles, lienzo Canvas2D, diálogos locales y atajos.
 import { api } from './api.js';
-import { BLEND_MODES } from './document.js';
-import { escapeHtml, clamp, formatBytes, downloadText, cloneImageData } from './util.js';
+import { BLEND_MODES, BLEND_LABELS } from './document.js';
+import { ICONS } from './icons.js';
+import { escapeHtml, clamp, formatBytes, cloneImageData } from './util.js';
 
 const SHORTCUTS = [
   ['V', 'Mover'], ['M', 'Marco rectangular'], ['L', 'Lazo'], ['W', 'Varita mágica'],
   ['C', 'Recortar'], ['I', 'Cuentagotas'], ['B', 'Pincel'], ['E', 'Borrador'],
-  ['G', 'Relleno'], ['T', 'Texto'], ['U', 'Formas'], ['H', 'Mano'], ['Z', 'Zoom'],
+  ['G', 'Cubeta'], ['T', 'Texto'], ['U', 'Formas'], ['H', 'Mano'], ['Z', 'Zoom'],
+  ['Esc', 'Inicio / editor'],
   ['Ctrl + N', 'Nuevo documento'], ['Ctrl + O', 'Abrir imagen'], ['Ctrl + S', 'Guardar .seyro'],
   ['Ctrl + Shift + S', 'Guardar como'], ['Ctrl + Alt + Shift + S', 'Exportar imagen'],
   ['Ctrl + Z', 'Deshacer'], ['Ctrl + Shift + Z', 'Rehacer'], ['Ctrl + T', 'Transformar'],
@@ -28,6 +30,7 @@ export class UI {
   get doc() { return this.editor.doc; }
   get tools() { return this.editor.tools; }
   get settings() { return this.editor.settings; }
+  get t() { return (key, fallback) => this.editor.i18n.t(key, fallback); }
 
   mount() {
     this.canvas = document.getElementById('editor-canvas');
@@ -39,26 +42,54 @@ export class UI {
     this.layersEl = document.getElementById('layers');
     this.historyEl = document.getElementById('history');
     this.statusEl = document.getElementById('status');
+    this.welcomeEl = document.getElementById('welcome');
     this.fgInput = document.getElementById('fg-color');
     this.bgInput = document.getElementById('bg-color');
     this.fgSwatch = document.getElementById('fg-swatch');
     this.bgSwatch = document.getElementById('bg-swatch');
 
+    this.applyI18nStatic();
     this.buildToolbar();
     this.bindDock();
+    this.bindWelcome();
     this.bindCanvas();
     this.bindKeyboard();
     new ResizeObserver(() => this.scheduleRender()).observe(this.viewport);
     this.renderAll();
+    this.renderWelcome();
+  }
+
+  /** Aplica traducciones a los textos fijos del documento HTML. */
+  applyI18nStatic() {
+    document.querySelectorAll('[data-i18n]').forEach((el) => {
+      el.textContent = this.t(el.dataset.i18n, el.textContent.trim());
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+      el.title = this.t(el.dataset.i18nTitle, el.title);
+      if (el.hasAttribute('aria-label')) el.setAttribute('aria-label', el.title);
+    });
+  }
+
+  applyI18n() {
+    this.applyI18nStatic();
+    this.buildToolbar();
+    this.renderAll();
+    this.renderWelcome();
+    if (this.modal?.el?.dataset?.kind === 'settings') this.openSettings();
+    if (this.modal?.el?.dataset?.kind === 'shortcuts') this.openShortcuts();
+    if (this.modal?.el?.dataset?.kind === 'about') this.openAbout();
   }
 
   /* ---------- Construcción y eventos ---------- */
 
   buildToolbar() {
-    this.toolbarEl.innerHTML = this.tools.list().map((tool) => `
-      <button class="tool-btn" data-tool="${tool.id}" title="${escapeHtml(tool.label)} (${tool.key || 'Ctrl+T'})">
+    this.toolbarEl.innerHTML = this.tools.list().map((tool) => {
+      const label = this.t(`tool.${tool.id}`, tool.label);
+      const hint = tool.key ? ` (${tool.key})` : '';
+      return `<button class="tool-btn" data-tool="${tool.id}" title="${escapeHtml(label + hint)}" aria-label="${escapeHtml(label)}">
         ${tool.icon}<small>${tool.key || ''}</small>
-      </button>`).join('');
+      </button>`;
+    }).join('');
     this.toolbarEl.querySelectorAll('[data-tool]').forEach((btn) => {
       btn.addEventListener('click', () => this.tools.setTool(btn.dataset.tool));
     });
@@ -91,6 +122,10 @@ export class UI {
       this.editor.state.bgColor = fgColor;
       this.updateColorControls();
     });
+    document.getElementById('copy-hex')?.addEventListener('click', () => {
+      this.copyText(this.editor.state.fgColor);
+      this.toast(this.t('color.copied', `HEX copiado: ${this.editor.state.fgColor}`));
+    });
 
     this.layersEl.addEventListener('click', (e) => {
       const row = e.target.closest('.layer-row');
@@ -112,10 +147,31 @@ export class UI {
     this.layersEl.addEventListener('dblclick', (e) => {
       const row = e.target.closest('.layer-row');
       if (!row || e.target.closest('button')) return;
-      const layer = this.doc.layerById(row.dataset.id);
-      if (!layer) return;
-      const name = window.prompt('Nombre de la capa', layer.name);
-      if (name) this.editor.setLayerProperty(layer.id, 'name', name.slice(0, 60));
+      const label = row.querySelector('.name');
+      const layer = this.doc?.layerById(row.dataset.id);
+      if (!label || !layer || label.querySelector('input')) return;
+      const input = document.createElement('input');
+      input.className = 'layer-rename';
+      input.value = layer.name;
+      input.maxLength = 60;
+      input.setAttribute('aria-label', this.t('layers.newName', 'Nombre de la capa'));
+      label.replaceChildren(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const commit = (save) => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        if (save && next && next !== layer.name) this.editor.setLayerProperty(layer.id, 'name', next);
+        else this.renderLayers();
+      };
+      input.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') commit(true);
+        if (ev.key === 'Escape') commit(false);
+      });
+      input.addEventListener('blur', () => commit(true));
     });
     this.layersEl.addEventListener('change', (e) => {
       const layer = this.doc?.activeLayer();
@@ -130,6 +186,88 @@ export class UI {
       if (!item) return;
       this.jumpHistory(Number(item.dataset.index));
     });
+  }
+
+  bindWelcome() {
+    const on = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+    on('home-btn', () => this.editor.toggleWelcome());
+    on('settings-btn', () => this.openSettings());
+    on('welcome-new', () => this.editor.newDocument());
+    on('welcome-open', () => this.editor.openImage());
+    on('welcome-open-project', () => this.editor.openProject());
+    on('welcome-settings', () => this.openSettings());
+    on('welcome-shortcuts', () => this.openShortcuts());
+    on('welcome-readme', () => this.openReadme());
+    on('welcome-about', () => this.openAbout());
+    on('welcome-github', () => this.openGitHub());
+    on('welcome-clear', () => this.editor.clearRecentProjects());
+    this.welcomeEl?.addEventListener('click', (e) => {
+      const open = e.target.closest('[data-recent-open]');
+      if (open) { this.editor.openRecentPath(open.dataset.recentOpen); return; }
+      const remove = e.target.closest('[data-recent-remove]');
+      if (remove) this.editor.removeRecent(remove.dataset.recentRemove);
+    });
+  }
+
+  async copyText(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch { /* se intenta el método local inferior */ }
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand?.('copy') ?? false;
+      area.remove();
+      return ok;
+    } catch { return false; }
+  }
+
+  async openGitHub() {
+    try { await api.openUrl('https://github.com/vDaiki-dev/seyropea'); }
+    catch (e) { this.toast(e.message || String(e), 'error'); }
+  }
+
+  renderWelcome() {
+    if (!this.welcomeEl) return;
+    const welcome = !!this.editor.showingWelcome;
+    document.getElementById('app').classList.toggle('welcome-mode', welcome);
+    if (!welcome) return;
+    const list = this.welcomeEl.querySelector('#welcome-recent');
+    const recents = this.editor.recentProjects();
+    const clear = document.getElementById('welcome-clear');
+    if (clear) clear.disabled = recents.length === 0;
+    if (!list) return;
+    if (!recents.length) {
+      list.innerHTML = `<p class="recent-empty">${escapeHtml(this.t('welcome.empty', 'Aún no hay proyectos. Crea o abre un documento para empezar.'))}</p>`;
+      return;
+    }
+    list.innerHTML = recents.map((entry) => {
+      const path = escapeHtml(entry.path || '');
+      const name = escapeHtml(entry.name || entry.path?.split(/[\\/]/).pop() || 'Proyecto');
+      const meta = escapeHtml([
+        entry.width && entry.height ? `${entry.width}×${entry.height}` : '',
+        entry.updatedAt ? new Date(entry.updatedAt).toLocaleDateString() : '',
+        entry.path || '',
+      ].filter(Boolean).join(' · '));
+      const thumb = entry.thumbnail
+        ? `<img class="recent-thumb" alt="" src="${escapeHtml(entry.thumbnail)}">`
+        : `<span class="recent-thumb placeholder">${ICONS.file}</span>`;
+      return `<div class="recent-item">
+        ${thumb}
+        <div class="recent-meta"><strong title="${path}">${name}</strong><small title="${path}">${meta}</small></div>
+        <div class="recent-actions">
+          <button data-recent-open="${path}" title="${escapeHtml(this.t('welcome.openProject', 'Abrir proyecto'))}" aria-label="${escapeHtml(this.t('welcome.openProject', 'Abrir proyecto'))}">${ICONS.folder}</button>
+          <button data-recent-remove="${path}" title="${escapeHtml(this.t('welcome.remove', 'Quitar'))}" aria-label="${escapeHtml(this.t('welcome.remove', 'Quitar'))}">${ICONS.trash}</button>
+        </div>
+      </div>`;
+    }).join('');
   }
 
   bindCanvas() {
@@ -199,6 +337,11 @@ export class UI {
       }
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.editor.toggleWelcome();
+        return;
+      }
       if (e.code === 'Space') {
         this._spaceDown = true;
         e.preventDefault();
@@ -299,8 +442,10 @@ export class UI {
       } else if (o.type === 'check') {
         control = `<input type="checkbox" data-option="${o.key}" ${value ? 'checked' : ''}>`;
       } else if (o.type === 'select') {
-        control = `<select data-option="${o.key}">${o.choices.map(([v, l]) =>
-          `<option value="${v}" ${v === value ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`;
+        control = `<select data-option="${o.key}">${o.choices.map(([v, l]) => {
+          const text = this.t(`value.${v}`, l);
+          return `<option value="${v}" ${v === value ? 'selected' : ''}>${escapeHtml(text)}</option>`;
+        }).join('')}</select>`;
       } else if (o.type === 'font') {
         const fonts = this.editor.theme?.fonts?.length ? this.editor.theme.fonts : ['sans-serif', 'serif', 'monospace'];
         control = `<select data-option="${o.key}">${fonts.map((f) =>
@@ -310,7 +455,8 @@ export class UI {
       } else {
         control = `<input type="text" data-option="${o.key}" value="${escapeHtml(value || '')}" size="24">`;
       }
-      return `<span class="opt-group"><label>${escapeHtml(o.label)}</label>${control}</span>`;
+      const label = this.t(`opt.${o.key}`, o.label);
+      return `<span class="opt-group"><label>${escapeHtml(label)}</label>${control}</span>`;
     }).join('');
     this.optionsEl.querySelectorAll('[data-option]').forEach((input) => {
       const key = input.dataset.option;
@@ -340,7 +486,7 @@ export class UI {
     this.tabsEl.innerHTML = this.editor.docs.map((doc) => `
       <div class="tab ${doc === this.doc ? 'active' : ''}" data-doc="${doc.id}">
         <span>${escapeHtml(doc.name)}${doc.dirty ? '*' : ''}</span>
-        <button class="close" data-close="${doc.id}" title="Cerrar">×</button>
+        <button class="close" data-close="${doc.id}" title="${escapeHtml(this.t('close', 'Cerrar'))}" aria-label="${escapeHtml(this.t('close', 'Cerrar'))}">${ICONS.close}</button>
       </div>`).join('');
     this.tabsEl.querySelectorAll('.tab').forEach((tab) => {
       tab.addEventListener('click', (e) => {
@@ -366,19 +512,21 @@ export class UI {
     if (!this.doc) return;
     const rows = this.doc.layers.slice().reverse().map((layer) => `
       <div class="layer-row ${layer.id === this.doc.activeLayerId ? 'active' : ''}" data-id="${layer.id}">
-        <button class="toggle ${layer.visible ? '' : 'locked'}" data-toggle="visible" title="Visibilidad">${layer.visible ? '◉' : '○'}</button>
+        <button class="toggle ${layer.visible ? '' : 'locked'}" data-toggle="visible" title="${escapeHtml(this.t('layers.visible', 'Visibilidad'))}" aria-label="${escapeHtml(this.t('layers.visible', 'Visibilidad'))}">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
         <img alt="" src="${layer.canvas.toDataURL('image/png')}">
-        <span class="name">${escapeHtml(layer.name)} ${layer.locked ? '🔒' : ''}</span>
-        <button class="toggle ${layer.locked ? 'locked' : ''}" data-toggle="lock" title="Bloquear" style="grid-column:3;justify-self:end;margin-top:-22px">${layer.locked ? '🔒' : '🔓'}</button>
+        <span class="name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
+        <button class="toggle ${layer.locked ? 'locked' : ''}" data-toggle="lock" title="${escapeHtml(this.t('layers.lock', 'Bloquear'))}" aria-label="${escapeHtml(this.t('layers.lock', 'Bloquear'))}">${layer.locked ? ICONS.lock : ICONS.unlock}</button>
       </div>`).join('');
     const active = this.doc.activeLayer();
     this.layersEl.innerHTML = rows + (active ? `
       <div class="layer-props">
-        <select data-layer="blend" title="Modo de fusión">
-          ${BLEND_MODES.map((m) => `<option value="${m}" ${m === active.blend ? 'selected' : ''}>${m}</option>`).join('')}
+        <select data-layer="blend" title="${escapeHtml(this.t('layers.blend', 'Modo de fusión'))}">
+          ${BLEND_MODES.map((m) => `<option value="${m}" ${m === active.blend ? 'selected' : ''}>${escapeHtml(this.t(`blend.${m}`, BLEND_LABELS[m]))}</option>`).join('')}
         </select>
-        <input type="range" data-layer="opacity" min="0" max="100" value="${Math.round(active.opacity * 100)}">
-        <span>${Math.round(active.opacity * 100)}%</span>
+        <label class="opacity-row">
+          <input type="range" data-layer="opacity" min="0" max="100" value="${Math.round(active.opacity * 100)}" aria-label="${escapeHtml(this.t('layers.opacity', 'Opacidad'))}">
+          <span>${Math.round(active.opacity * 100)}%</span>
+        </label>
       </div>` : '');
     document.getElementById('layer-count').textContent = `${this.doc.layers.length}`;
     const output = this.layersEl.querySelector('.layer-props span');
@@ -416,14 +564,15 @@ export class UI {
     const coords = cursor ? `${Math.floor(cursor.x)}, ${Math.floor(cursor.y)}` : '—';
     const selection = this.doc.selectionRect
       ? `Sel ${this.doc.selectionRect.width}×${this.doc.selectionRect.height}`
-      : 'Sin selección';
+      : this.t('status.noSelection', 'Sin selección');
+    const toolLabel = this.t(`tool.${this.tools.current}`, tool?.label || '');
     this.statusEl.innerHTML = `
       <span>${escapeHtml(this.doc.name)}${this.doc.dirty ? ' *' : ''}</span><span class="sep">|</span>
       <span>${this.doc.width} × ${this.doc.height} px</span><span class="sep">|</span>
       <span>${Math.round(this.doc.zoom * 100)}%</span><span class="sep">|</span>
-      <span>${escapeHtml(tool?.label || '')}</span><span class="sep">|</span>
+      <span>${escapeHtml(toolLabel)}</span><span class="sep">|</span>
       <span>${coords}</span><span class="sep">|</span>
-      <span>${selection}</span><span class="sep">|</span>
+      <span id="status-selection">${selection}</span><span class="sep">|</span>
       <span>${escapeHtml(this.editor.theme?.find().name || '')}</span><span class="sep">|</span>
       <span> GPL-3.0 · ${formatBytes(this.doc.layers.length * this.doc.width * this.doc.height * 4)} RAM aprox.</span>`;
   }
@@ -433,7 +582,6 @@ export class UI {
   updateTitle() {
     const name = this.doc?.name || 'SeyroPea';
     document.title = `${name}${this.doc?.dirty ? '*' : ''} — SeyroPea`;
-    document.getElementById('document-title').textContent = `${name}${this.doc?.dirty ? ' *' : ''}`;
     this.renderTabs?.();
   }
 
@@ -443,6 +591,8 @@ export class UI {
     this.bgInput.value = bgColor;
     this.fgSwatch.style.background = fgColor;
     this.bgSwatch.style.background = bgColor;
+    const hex = document.getElementById('color-hex-label');
+    if (hex) hex.textContent = fgColor.toUpperCase();
   }
 
   refreshThemeControls() {
@@ -490,11 +640,14 @@ export class UI {
 
   checkerPattern() {
     if (this._checker) return this._checker;
+    const styles = getComputedStyle(document.documentElement);
+    const light = styles.getPropertyValue('--checker-a').trim() || '#2a2a30';
+    const dark = styles.getPropertyValue('--checker-b').trim() || '#1c1c20';
     const pattern = document.createElement('canvas');
     pattern.width = 16; pattern.height = 16;
     const ctx = pattern.getContext('2d');
-    ctx.fillStyle = '#cfcfcf'; ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#9e9e9e'; ctx.fillRect(0, 0, 8, 8); ctx.fillRect(8, 8, 8, 8);
+    ctx.fillStyle = dark; ctx.fillRect(0, 0, 16, 16);
+    ctx.fillStyle = light; ctx.fillRect(0, 0, 8, 8); ctx.fillRect(8, 8, 8, 8);
     this._checker = this.ctx.createPattern(pattern, 'repeat');
     return this._checker;
   }
@@ -550,8 +703,8 @@ export class UI {
     ctx.beginPath();
     ctx.rect(r, r, width - r, height - r);
     ctx.clip();
-    ctx.shadowColor = 'rgba(0,0,0,.6)';
-    ctx.shadowBlur = 18;
+    ctx.shadowColor = 'rgba(0,0,0,.45)';
+    ctx.shadowBlur = 10;
     ctx.fillStyle = this.checkerPattern();
     ctx.fillRect(origin.x, origin.y, dw, dh);
     ctx.shadowBlur = 0;
@@ -645,6 +798,27 @@ export class UI {
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(s.x, s.y, Math.max(2, size * this.doc.zoom / 2), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (cursor && this.tools.current === 'bucket') {
+      const s = this.docToScreen(cursor.x, cursor.y);
+      const color = this.editor.toolOptions.bucket?.useBackground
+        ? this.editor.state.bgColor : this.editor.state.fgColor;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.strokeStyle = '#ffffff';
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-10, 0); ctx.lineTo(-7, 0);
+      ctx.moveTo(10, 0); ctx.lineTo(7, 0);
+      ctx.moveTo(0, -10); ctx.lineTo(0, -7);
+      ctx.moveTo(0, 10); ctx.lineTo(0, 7);
       ctx.stroke();
       ctx.restore();
     }
@@ -894,33 +1068,78 @@ export class UI {
 
   openSettings() {
     const theme = this.editor.theme;
-    const current = theme.resolvedPalette();
+    const i18n = this.editor.i18n;
     const fonts = theme.fonts.length ? theme.fonts : ['sans-serif', 'serif', 'monospace'];
+    const tr = (key, fallback) => escapeHtml(this.t(key, fallback));
+    const label = (key, fallback) => this.t(key, fallback);
     const body = `
-      <div class="section-title">Apariencia</div>
-      ${this.row('Tema', `<select data-setting="theme">${theme.allThemes().map((t) =>
-        `<option value="${escapeHtml(t.id)}" ${t.id === theme.currentId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select>`)}
-      <div class="color-grid">${theme.colorInputs()}</div>
-      ${this.row('Fuente UI', `<select data-setting="fontFamily">${fonts.map((f) =>
-        `<option value="${escapeHtml(f)}" ${f === this.settings.fontFamily ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}</select>`)}
-      ${this.row('Tamaño UI', `<input type="range" data-setting="fontScale" min="80" max="140" value="${this.settings.fontScale || 100}">`)}
-      ${this.row('Números monoespaciados', `<input type="checkbox" data-setting="monospaceNumbers" ${this.settings.monospaceNumbers ? 'checked' : ''}>`)}
-      <div class="section-title">Fondo de pantalla → paleta</div>
-      <div class="row"><button id="detect-wallpaper">Detectar fondo automáticamente</button><button id="choose-wallpaper">Elegir imagen local</button></div>
-      ${this.row('Detección automática al iniciar', `<input type="checkbox" data-setting="wallpaperAuto" ${this.settings.wallpaperAuto !== false ? 'checked' : ''}>`)}
-      ${this.settings.wallpaperPath ? `<p class="hint">Referencia actual: ${escapeHtml(this.settings.wallpaperPath)}</p>` : ''}
-      <div class="section-title">Temas personalizados</div>
-      <div class="row"><button id="clone-theme">Clonar tema actual</button><button id="export-theme">Exportar JSON</button><button id="import-theme">Importar JSON</button><button id="delete-theme">Eliminar</button></div>
-      <input type="file" id="import-theme-file" accept="application/json,.json" hidden>
-      <div class="section-title">Editor</div>
-      ${this.row('Historial (pasos)', `<input type="number" data-setting="historyLimit" min="10" max="200" value="${this.settings.historyLimit || 50}">`)}
-      ${this.row('Mostrar reglas', `<input type="checkbox" data-setting="showRulers" ${this.settings.showRulers ? 'checked' : ''}>`)}
-      ${this.row('Mostrar cuadrícula', `<input type="checkbox" data-setting="showGrid" ${this.settings.showGrid ? 'checked' : ''}>`)}
-      ${this.row('Guías inteligentes', `<input type="checkbox" data-setting="smartGuides" ${this.settings.smartGuides ? 'checked' : ''}>`)}
-      ${this.row('Buscar actualizaciones al iniciar', `<input type="checkbox" data-setting="checkUpdates" ${this.settings.checkUpdates ? 'checked' : ''}>`)}`;
-    const modal = this.createModal('Preferencias y temas', body, { wide: true, kind: 'settings' });
+      <details class="settings-section" open>
+        <summary>${tr('settings.languageSection', 'General e idioma')}</summary>
+        ${this.row(label('settings.language', 'Idioma'), `<select data-setting="language">${i18n.localeList().map((l) =>
+          `<option value="${l.code}" ${l.code === i18n.locale ? 'selected' : ''}>${escapeHtml(l.native)}</option>`).join('')}</select>`)}
+        <p class="hint">${tr('settings.languageHint', 'La interfaz y los menús nativos cambian de idioma al instante.')}</p>
+      </details>
+
+      <details class="settings-section" open>
+        <summary>${tr('settings.appearance', 'Apariencia')}</summary>
+        ${this.row(label('settings.theme', 'Tema'), `<select data-setting="theme">${theme.allThemes().map((t) =>
+          `<option value="${escapeHtml(t.id)}" ${t.id === theme.currentId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select>`)}
+        <div class="color-grid">${theme.colorInputs()}</div>
+        ${this.row(label('settings.font', 'Fuente UI'), `<select data-setting="fontFamily">${fonts.map((f) =>
+          `<option value="${escapeHtml(f)}" ${f === this.settings.fontFamily ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}</select>`)}
+        ${this.row(label('settings.uiSize', 'Tamaño UI'), `<input type="range" data-setting="fontScale" min="80" max="140" value="${this.settings.fontScale || 100}">`)}
+        ${this.row(label('settings.mono', 'Números monoespaciados'), `<input type="checkbox" data-setting="monospaceNumbers" ${this.settings.monospaceNumbers ? 'checked' : ''}>`)}
+      </details>
+
+      <details class="settings-section">
+        <summary>${tr('settings.wallpaper', 'Fondo de pantalla → paleta')}</summary>
+        <div class="settings-buttons">
+          <button id="detect-wallpaper">${tr('settings.detect', 'Detectar fondo automáticamente')}</button>
+          <button id="choose-wallpaper">${tr('settings.choose', 'Elegir imagen local')}</button>
+        </div>
+        ${this.row(label('settings.wallpaperAuto', 'Detección automática al iniciar'), `<input type="checkbox" data-setting="wallpaperAuto" ${this.settings.wallpaperAuto !== false ? 'checked' : ''}>`)}
+        ${this.settings.wallpaperPath ? `<p class="hint">${tr('settings.currentRef', 'Referencia actual')}: ${escapeHtml(this.settings.wallpaperPath)}</p>` : ''}
+      </details>
+
+      <details class="settings-section">
+        <summary>${tr('settings.customThemes', 'Temas personalizados')}</summary>
+        <div class="settings-buttons">
+          <button id="clone-theme">${tr('settings.clone', 'Clonar tema actual')}</button>
+          <button id="export-theme">${tr('settings.exportTheme', 'Exportar JSON')}</button>
+          <button id="import-theme">${tr('settings.importTheme', 'Importar JSON')}</button>
+          <button id="delete-theme">${tr('settings.deleteTheme', 'Eliminar')}</button>
+        </div>
+        <input type="file" id="import-theme-file" accept="application/json,.json" hidden>
+      </details>
+
+      <details class="settings-section">
+        <summary>${tr('settings.editor', 'Editor')}</summary>
+        ${this.row(label('settings.historyLimit', 'Historial (pasos)'), `<input type="number" data-setting="historyLimit" min="10" max="200" value="${this.settings.historyLimit || 50}">`)}
+        ${this.row(label('settings.rulers', 'Mostrar reglas'), `<input type="checkbox" data-setting="showRulers" ${this.settings.showRulers ? 'checked' : ''}>`)}
+        ${this.row(label('settings.grid', 'Mostrar cuadrícula'), `<input type="checkbox" data-setting="showGrid" ${this.settings.showGrid ? 'checked' : ''}>`)}
+        ${this.row(label('settings.guides', 'Guías inteligentes'), `<input type="checkbox" data-setting="smartGuides" ${this.settings.smartGuides ? 'checked' : ''}>`)}
+        ${this.row(label('settings.updates', 'Buscar actualizaciones al iniciar'), `<input type="checkbox" data-setting="checkUpdates" ${this.settings.checkUpdates ? 'checked' : ''}>`)}
+        ${this.row(label('settings.backup', 'Respaldo automático local'), `<input type="checkbox" data-setting="autoBackup" ${this.settings.autoBackup !== false ? 'checked' : ''}>`)}
+        <p class="hint">${tr('settings.backupHint', 'Guarda copias .seyro en la carpeta de configuración de SeyroPea.')}</p>
+      </details>
+
+      <details class="settings-section">
+        <summary>${tr('settings.project', 'Proyecto y ayuda')}</summary>
+        <div class="settings-buttons">
+          <button id="open-readme">${ICONS.book}${tr('settings.readme', 'Ver README local')}</button>
+          <button id="open-github">${ICONS.github}${tr('settings.github', 'Proyecto en GitHub')}</button>
+          <button id="open-shortcuts">${ICONS.keyboard}${tr('settings.shortcuts', 'Atajos de teclado')}</button>
+          <button id="reset-settings">${ICONS.refresh}${tr('settings.reset', 'Restaurar ajustes por defecto')}</button>
+        </div>
+        <p class="hint">${tr('settings.projectInfo', 'SeyroPea v0.1.0 · GPL-3.0-only · 100% offline · sin IA generativa.')}</p>
+      </details>`;
+    const modal = this.createModal(this.t('settings.title', 'Preferencias y temas'), body, { wide: true, kind: 'settings' });
     const get = (key) => modal.el.querySelector(`[data-setting="${key}"]`);
 
+    get('language').addEventListener('change', (e) => {
+      i18n.setLocale(e.target.value);
+      this.toast(this.t('settings.languageChanged', 'Idioma actualizado'));
+    });
     get('theme').addEventListener('change', (e) => theme.setTheme(e.target.value));
     modal.el.querySelectorAll('[data-palette-key]').forEach((input) => {
       input.addEventListener('input', () => {
@@ -941,25 +1160,26 @@ export class UI {
       });
     };
     ['fontFamily', 'fontScale', 'monospaceNumbers', 'wallpaperAuto', 'historyLimit',
-      'showRulers', 'showGrid', 'smartGuides', 'checkUpdates'].forEach((k) => simple(k,
-      k === 'fontScale' ? 'input' : 'change'));
+      'showRulers', 'showGrid', 'smartGuides', 'checkUpdates', 'autoBackup'].forEach((k) =>
+      simple(k, k === 'fontScale' ? 'input' : 'change'));
 
     modal.el.querySelector('#detect-wallpaper').addEventListener('click', async () => {
       const path = await theme.detectWallpaper();
-      this.toast(path ? `Paleta derivada de ${path}` : 'No se pudo detectar el fondo del sistema', path ? 'info' : 'error');
+      this.toast(path ? `${this.t('settings.wallpaperDerived', 'Paleta derivada de')} ${path}`
+        : this.t('settings.wallpaperFailed', 'No se pudo detectar el fondo del sistema'), path ? 'info' : 'error');
       this.openSettings();
     });
     modal.el.querySelector('#choose-wallpaper').addEventListener('click', async () => {
       const path = await theme.chooseWallpaper();
-      if (path) { this.toast('Paleta derivada de la imagen local'); this.openSettings(); }
+      if (path) { this.toast(this.t('settings.wallpaperDerived', 'Paleta derivada de la imagen local')); this.openSettings(); }
     });
     modal.el.querySelector('#clone-theme').addEventListener('click', () => {
-      const name = window.prompt('Nombre del nuevo tema', `${theme.find().name} copia`);
+      const name = window.prompt(this.t('settings.themeName', 'Nombre del nuevo tema'), `${theme.find().name} copia`);
       if (name) { theme.cloneCurrent(name); this.openSettings(); }
     });
     modal.el.querySelector('#export-theme').addEventListener('click', () => theme.exportCurrent());
     modal.el.querySelector('#delete-theme').addEventListener('click', () => {
-      if (!theme.find().custom) return this.toast('Los temas integrados no se pueden eliminar', 'error');
+      if (!theme.find().custom) return this.toast(this.t('settings.builtinTheme', 'Los temas integrados no se pueden eliminar'), 'error');
       theme.deleteCustom(theme.currentId);
       this.openSettings();
     });
@@ -970,29 +1190,78 @@ export class UI {
       if (!file) return;
       try {
         const imported = theme.importTheme(await file.text());
-        this.toast(`Tema importado: ${imported.name}`);
+        this.toast(`${this.t('settings.themeImported', 'Tema importado')}: ${imported.name}`);
         this.openSettings();
-      } catch (e) { this.toast(`Theme inválido: ${e.message}`, 'error'); }
+      } catch (e) { this.toast(`${this.t('settings.invalidTheme', 'Tema inválido')}: ${e.message}`, 'error'); }
     });
-    this.addButtons(modal, [{ label: 'Cerrar', primary: true, run: () => modal.close() }]);
+    modal.el.querySelector('#open-readme').addEventListener('click', () => this.openReadme());
+    modal.el.querySelector('#open-github').addEventListener('click', () => this.openGitHub());
+    modal.el.querySelector('#open-shortcuts').addEventListener('click', () => this.openShortcuts());
+    modal.el.querySelector('#reset-settings').addEventListener('click', () => {
+      this.editor.resetSettings();
+      this.openSettings();
+      this.toast(this.t('settings.resetDone', 'Ajustes restaurados'));
+    });
+    this.addButtons(modal, [{ label: this.t('close', 'Cerrar'), primary: true, run: () => modal.close() }]);
   }
 
   openAbout() {
     const info = this.editor.appInfo || {};
-    const modal = this.createModal('Acerca de SeyroPea', `
-      <p><strong>SeyroPea v${escapeHtml(info.version || '0.1.0')}</strong> — estudio de edición de imágenes nativo, ligero y offline.</p>
-      <p>Procesamiento algorítmico determinista sobre buffers RGBA. Sin IA generativa, sin telemetría y sin dependencias de red en producción.</p>
-      <p>Licencia: <strong>GPL-3.0-only</strong> · Repositorio: github.com/vDaiki-dev/seyropea</p>
-      <p class="hint">Incluye UPNG.js y pako (MIT) de forma local para exportación PNG optimizada.</p>`);
-    this.addButtons(modal, [{ label: 'Cerrar', primary: true, run: () => modal.close() }]);
+    const tr = (key, fallback) => escapeHtml(this.t(key, fallback));
+    const modal = this.createModal(this.t('about.title', 'Acerca de SeyroPea'), `
+      <p><strong>SeyroPea v${escapeHtml(info.version || '0.1.0')}</strong> — ${tr('about.tagline', 'estudio de edición de imágenes nativo, ligero y offline.')}</p>
+      <p>${tr('about.offline', 'Procesamiento algorítmico determinista sobre buffers RGBA. Sin IA generativa, sin telemetría y sin dependencias de red en producción.')}</p>
+      <p>${tr('about.license', 'Licencia')}: <strong>GPL-3.0-only</strong> · ${tr('about.repo', 'Repositorio')}: github.com/vDaiki-dev/seyropea</p>
+      <p class="hint">${tr('about.credits', 'Créditos: vDaiki-dev. Incluye UPNG.js y pako (MIT) de forma local para exportación PNG optimizada.')}</p>`, { kind: 'about' });
+    this.addButtons(modal, [
+      { label: this.t('settings.github', 'Proyecto en GitHub'), run: () => this.openGitHub() },
+      { label: this.t('close', 'Cerrar'), primary: true, run: () => modal.close() },
+    ]);
+  }
+
+  openReadme() {
+    const modal = this.createModal(this.t('readme.title', 'README de SeyroPea (local)'), `
+      <iframe class="readme-frame" src="./assets/README.md" title="README"></iframe>
+      <p class="hint">${escapeHtml(this.t('readme.hint', 'Se lee desde el paquete local; no se necesita conexión a Internet.'))}</p>`,
+    { wide: true, kind: 'readme' });
+    this.addButtons(modal, [
+      { label: this.t('settings.github', 'Proyecto en GitHub'), run: () => this.openGitHub() },
+      { label: this.t('close', 'Cerrar'), primary: true, run: () => modal.close() },
+    ]);
+  }
+
+  openCloseConfirm(dirtyDocs = []) {
+    if (!dirtyDocs.length) { this.editor.closeWindow(); return; }
+    if (this.modal?.el?.dataset?.kind === 'close') return;
+    const names = escapeHtml(dirtyDocs.map((d) => `${d.name}*`).join(', '));
+    const modal = this.createModal(this.t('close.title', 'Cambios sin guardar'), `
+      <p>${escapeHtml(this.t('close.message', 'Los siguientes documentos tienen cambios sin guardar:'))}</p>
+      <p><strong>${names}</strong></p>`, { kind: 'close' });
+    this.addButtons(modal, [
+      { label: this.t('close.cancel', 'Cancelar'), run: () => modal.close() },
+      { label: this.t('close.discard', 'Salir sin guardar'), run: () => this.editor.closeWindow() },
+      {
+        label: this.t('close.save', 'Guardar y salir'), primary: true,
+        run: async () => {
+          const previous = this.editor.doc;
+          for (const doc of dirtyDocs) {
+            this.editor.doc = doc;
+            await this.editor.saveProject(false);
+          }
+          this.editor.doc = previous;
+          if (!dirtyDocs.some((d) => d.dirty)) this.editor.closeWindow();
+          else modal.close();
+        },
+      },
+    ]);
   }
 
   openShortcuts() {
-    const modal = this.createModal('Atajos de teclado', `
-      <table><thead><tr><th>Tecla</th><th>Acción</th></tr></thead><tbody>
-      ${SHORTCUTS.map(([key, label]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(label)}</td></tr>`).join('')}
-      </tbody></table>`, { wide: true });
-    this.addButtons(modal, [{ label: 'Cerrar', primary: true, run: () => modal.close() }]);
+    const modal = this.createModal(this.t('settings.shortcuts', 'Atajos de teclado'), `
+      <table><thead><tr><th>${escapeHtml(this.t('shortcuts.key', 'Tecla'))}</th><th>${escapeHtml(this.t('shortcuts.action', 'Acción'))}</th></tr></thead><tbody>
+      ${SHORTCUTS.map(([key, label]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(this.t(`shortcut.${key}`, label))}</td></tr>`).join('')}
+      </tbody></table>`, { wide: true, kind: 'shortcuts' });
+    this.addButtons(modal, [{ label: this.t('close', 'Cerrar'), primary: true, run: () => modal.close() }]);
   }
 
   showUpdate(info) {

@@ -26,6 +26,8 @@ pub fn default_settings() -> Value {
         "recentFiles": [],
         "checkUpdates": true,
         "historyLimit": 50,
+        "language": "es",
+        "autoBackup": true,
         "showRulers": true,
         "showGrid": false,
         "smartGuides": true

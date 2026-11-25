@@ -96,6 +96,28 @@ fn read_u64(buf: &[u8]) -> Result<u64, String> {
     Ok(u64::from_le_bytes(a))
 }
 
+/// Lee únicamente la cabecera y el manifiesto; útil para recientes sin descargar capas.
+pub fn manifest(path: &Path) -> Result<ProjectManifest, String> {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut file = File::open(path).map_err(|e| format!("No se pudo leer el proyecto: {e}"))?;
+    let mut header = [0u8; 12];
+    file.read_exact(&mut header)
+        .map_err(|_| "Contenedor truncado (cabecera)".to_string())?;
+    if header[..8] != MAGIC {
+        return Err("No es un archivo .seyro válido".into());
+    }
+    let manifest_len = read_u32(&header[8..12])? as usize;
+    if manifest_len > 8 * 1024 * 1024 {
+        return Err("Manifiesto demasiado grande".into());
+    }
+    let mut bytes = vec![0u8; manifest_len];
+    file.read_exact(&mut bytes)
+        .map_err(|_| "Manifiesto truncado".to_string())?;
+    serde_json::from_slice(&bytes).map_err(|e| format!("Manifiesto corrupto: {e}"))
+}
+
 pub fn save(path: &Path, project: &ProjectFile) -> Result<(), String> {
     if project.manifest.format != "seyro" {
         return Err("El manifiesto no corresponde a un proyecto SeyroPea".into());

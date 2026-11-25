@@ -1,6 +1,7 @@
 // ToolRegistry: herramientas de edición deterministas sobre capas raster.
-import { uid, clamp, rectFromPoints, rgbToHex, cloneImageData } from './util.js';
+import { uid, clamp, rectFromPoints, rgbToHex, cloneImageData, hexToRgb } from './util.js';
 import { Layer } from './document.js';
+import { ICONS } from './icons.js';
 
 function pointToLayer(layer, point) {
   return { x: point.x - layer.x, y: point.y - layer.y };
@@ -76,28 +77,32 @@ function colorDistance(a, i, r, g, b, alpha) {
   return Math.sqrt(dr * dr + dg * dg + db * db + da * da) / Math.sqrt(4 * 255 * 255);
 }
 
-function floodSelection(imageData, doc, start, tolerance, contiguous, offset = { x: 0, y: 0 }) {
+/**
+ * Máscara de relleno determinista. Contiguo usa pila (4 vecinos); no contiguo evalúa
+ * toda la imagen, respetando siempre la selección activa y el desplazamiento de capa.
+ */
+export function floodSelection(imageData, doc, start, tolerance, contiguous, offset = { x: 0, y: 0 }) {
   const { width: w, height: h, data } = imageData;
   const sx = Math.floor(start.x), sy = Math.floor(start.y);
-  if (sx < 0 || sy < 0 || sx >= w || sy >= h) return new Uint8Array(w * h);
+  const mask = new Uint8Array(w * h);
+  if (sx < 0 || sy < 0 || sx >= w || sy >= h) return mask;
   const p = (sy * w + sx) * 4;
   const target = [data[p], data[p + 1], data[p + 2], data[p + 3]];
   const limit = clamp(tolerance, 0, 100) / 100;
-  const mask = new Uint8Array(w * h);
   const visited = new Uint8Array(w * h);
-  const stack = [sy * w + sx];
+  const stack = contiguous ? [sy * w + sx] : Array.from({ length: w * h }, (_, i) => i);
+
   while (stack.length) {
     const idx = stack.pop();
     if (visited[idx]) continue;
     visited[idx] = 1;
     const i = idx * 4;
     if (colorDistance(data, i, ...target) > limit) continue;
-    const dx = (idx % w) + offset.x;
-    const dy = Math.floor(idx / w) + offset.y;
-    if (doc.selection && (dx < 0 || dy < 0 || dx >= doc.width || dy >= doc.height || !doc.selection[dy * doc.width + dx])) continue;
+    const x = idx % w, y = Math.floor(idx / w);
+    const dx = x + offset.x, dy = y + offset.y;
+    if (doc?.selection && (dx < 0 || dy < 0 || dx >= doc.width || dy >= doc.height || !doc.selection[dy * doc.width + dx])) continue;
     mask[idx] = 255;
     if (!contiguous) continue;
-    const x = idx % w, y = Math.floor(idx / w);
     if (x > 0) stack.push(idx - 1);
     if (x < w - 1) stack.push(idx + 1);
     if (y > 0) stack.push(idx - w);
@@ -194,7 +199,7 @@ function handleAt(box, point) {
 
 const TOOL_DEFS = [
   {
-    id: 'move', key: 'V', label: 'Mover', icon: '✥', cursor: 'move',
+    id: 'move', key: 'V', label: 'Mover', icon: ICONS.move, cursor: 'move',
     options: [{ key: 'autoSelect', label: 'Seleccionar capa bajo el puntero', type: 'check', value: true }],
     onDown(editor, ctx, s) {
       const layer = editor.doc.activeLayer();
@@ -225,7 +230,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'transform', key: '', label: 'Transformar', icon: '⤢', cursor: 'move',
+    id: 'transform', key: '', label: 'Transformar', icon: ICONS.transform, cursor: 'move',
     options: [{ key: 'angle', label: 'Rotación (°)', type: 'range', min: -180, max: 180, value: 0, step: 1 }],
     onActivate(editor) {
       const layer = editor.doc.activeLayer();
@@ -294,7 +299,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'marquee', key: 'M', label: 'Marco rectangular', icon: '▧', cursor: 'crosshair',
+    id: 'marquee', key: 'M', label: 'Marco rectangular', icon: ICONS.marquee, cursor: 'crosshair',
     options: [{
       key: 'mode', label: 'Modo', type: 'select', value: 'new',
       choices: [['new', 'Nueva'], ['add', 'Añadir'], ['subtract', 'Restar'], ['intersect', 'Intersección']],
@@ -312,7 +317,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'lasso', key: 'L', label: 'Lazo', icon: '⌁', cursor: 'crosshair',
+    id: 'lasso', key: 'L', label: 'Lazo', icon: ICONS.lasso, cursor: 'crosshair',
     options: [{
       key: 'mode', label: 'Modo', type: 'select', value: 'new',
       choices: [['new', 'Nueva'], ['add', 'Añadir'], ['subtract', 'Restar']],
@@ -331,7 +336,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'wand', key: 'W', label: 'Varita mágica', icon: '✦', cursor: 'crosshair',
+    id: 'wand', key: 'W', label: 'Varita mágica', icon: ICONS.wand, cursor: 'crosshair',
     options: [
       { key: 'tolerance', label: 'Tolerancia %', type: 'range', min: 0, max: 100, value: 12, step: 1 },
       { key: 'contiguous', label: 'Contiguo', type: 'check', value: true },
@@ -347,7 +352,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'crop', key: 'C', label: 'Recortar', icon: '▢', cursor: 'crosshair',
+    id: 'crop', key: 'C', label: 'Recortar', icon: ICONS.crop, cursor: 'crosshair',
     options: [],
     onDown(editor, ctx, s) { s.start = { x: ctx.x, y: ctx.y }; },
     onMove(editor, ctx, s) {
@@ -362,7 +367,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'eyedropper', key: 'I', label: 'Cuentagotas', icon: '◉', cursor: 'crosshair',
+    id: 'eyedropper', key: 'I', label: 'Cuentagotas', icon: ICONS.eyedropper, cursor: 'crosshair',
     options: [{ key: 'sampleSize', label: 'Muestreo', type: 'select', value: '1', choices: [['1', '1 px'], ['3', '3×3'], ['5', '5×5']] }],
     onDown(editor, ctx) {
       const doc = editor.doc;
@@ -383,7 +388,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'brush', key: 'B', label: 'Pincel', icon: '✎', cursor: 'crosshair',
+    id: 'brush', key: 'B', label: 'Pincel', icon: ICONS.brush, cursor: 'crosshair',
     options: [
       { key: 'size', label: 'Tamaño', type: 'range', min: 1, max: 200, value: 14, step: 1 },
       { key: 'hardness', label: 'Dureza %', type: 'range', min: 0, max: 100, value: 85, step: 1 },
@@ -414,7 +419,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'eraser', key: 'E', label: 'Borrador', icon: '◐', cursor: 'crosshair',
+    id: 'eraser', key: 'E', label: 'Borrador', icon: ICONS.eraser, cursor: 'crosshair',
     options: [
       { key: 'size', label: 'Tamaño', type: 'range', min: 1, max: 200, value: 20, step: 1 },
       { key: 'hardness', label: 'Dureza %', type: 'range', min: 0, max: 100, value: 90, step: 1 },
@@ -440,36 +445,63 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'bucket', key: 'G', label: 'Relleno', icon: '▣', cursor: 'crosshair',
+    id: 'bucket', key: 'G', label: 'Cubeta', icon: ICONS.bucket, cursor: 'crosshair',
     options: [
-      { key: 'tolerance', label: 'Tolerancia %', type: 'range', min: 0, max: 100, value: 10, step: 1 },
+      { key: 'tolerance', label: 'Tolerancia %', type: 'range', min: 0, max: 100, value: 12, step: 1 },
       { key: 'contiguous', label: 'Contiguo', type: 'check', value: true },
+      {
+        key: 'source', label: 'Origen', type: 'select', value: 'layer',
+        choices: [['layer', 'Capa activa'], ['visible', 'Capas visibles']],
+      },
       { key: 'useBackground', label: 'Usar color de fondo', type: 'check', value: false },
     ],
     onDown(editor, ctx) {
       const layer = editor.doc.activeLayer();
-      if (!layer || layer.locked) return;
+      if (!layer || layer.locked) {
+        editor.ui?.toast?.('La capa activa está bloqueada o no existe', 'error');
+        return;
+      }
+      const opts = editor.toolOptions.bucket;
       const original = layer.imageData();
       const working = cloneImageData(original);
-      const local = pointToLayer(layer, ctx);
-      const mask = floodSelection(working, editor.doc, local,
-        editor.toolOptions.bucket.tolerance, editor.toolOptions.bucket.contiguous,
-        { x: layer.x, y: layer.y });
-      const color = editor.toolOptions.bucket.useBackground ? editor.state.bgColor : editor.state.fgColor;
-      const hex = color.replace('#', '');
-      const rgb = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      const fromVisible = opts.source === 'visible';
+      const source = fromVisible ? editor.doc.flattenedImageData() : original;
+      const start = fromVisible ? { x: ctx.x, y: ctx.y } : pointToLayer(layer, ctx);
+      const offset = fromVisible ? { x: 0, y: 0 } : { x: layer.x, y: layer.y };
+      const mask = floodSelection(source, editor.doc, start, opts.tolerance, opts.contiguous, offset);
+      const color = opts.useBackground ? editor.state.bgColor : editor.state.fgColor;
+      const [r, g, b] = hexToRgb(color);
+      let filled = 0;
       for (let i = 0; i < mask.length; i++) {
         if (!mask[i]) continue;
         const p = i * 4;
-        working.data[p] = rgb[0]; working.data[p + 1] = rgb[1]; working.data[p + 2] = rgb[2]; working.data[p + 3] = 255;
+        if (fromVisible) {
+          // La máscara está en coordenadas de documento; se traslada a la capa activa.
+          const dx = i % source.width;
+          const dy = Math.floor(i / source.width);
+          const lx = dx - layer.x, ly = dy - layer.y;
+          if (lx < 0 || ly < 0 || lx >= layer.width || ly >= layer.height) continue;
+          const target = (ly * layer.width + lx) * 4;
+          working.data[target] = r; working.data[target + 1] = g;
+          working.data[target + 2] = b; working.data[target + 3] = 255;
+        } else {
+          working.data[p] = r; working.data[p + 1] = g;
+          working.data[p + 2] = b; working.data[p + 3] = 255;
+        }
+        filled++;
+      }
+      if (!filled) {
+        editor.ui?.toast?.('No hay píxeles compatibles con la tolerancia indicada');
+        return;
       }
       layer.putImageData(working);
       editor.doc.invalidate();
       editor.commitPixels('Relleno', layer, original);
+      editor.ui?.renderHistory?.();
     },
   },
   {
-    id: 'text', key: 'T', label: 'Texto', icon: 'T', cursor: 'text',
+    id: 'text', key: 'T', label: 'Texto', icon: ICONS.text, cursor: 'text',
     options: [
       { key: 'text', label: 'Texto', type: 'text', value: 'Escribe aquí' },
       { key: 'fontFamily', label: 'Fuente', type: 'font', value: 'sans-serif' },
@@ -498,7 +530,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'shape', key: 'U', label: 'Formas', icon: '◇', cursor: 'crosshair',
+    id: 'shape', key: 'U', label: 'Formas', icon: ICONS.shape, cursor: 'crosshair',
     options: [
       { key: 'shape', label: 'Forma', type: 'select', value: 'rect', choices: [['rect', 'Rectángulo'], ['ellipse', 'Elipse'], ['line', 'Línea']] },
       { key: 'fill', label: 'Relleno', type: 'color', value: 'transparent' },
@@ -531,7 +563,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'hand', key: 'H', label: 'Mano', icon: '✋', cursor: 'grab',
+    id: 'hand', key: 'H', label: 'Mano', icon: ICONS.hand, cursor: 'grab',
     options: [],
     onDown(editor, ctx, s) { s.start = { x: ctx.raw.x, y: ctx.raw.y }; s.pan = { x: editor.doc.panX, y: editor.doc.panY }; },
     onMove(editor, ctx, s) {
@@ -542,7 +574,7 @@ const TOOL_DEFS = [
     },
   },
   {
-    id: 'zoom', key: 'Z', label: 'Zoom', icon: '⌕', cursor: 'zoom-in',
+    id: 'zoom', key: 'Z', label: 'Zoom', icon: ICONS.zoom, cursor: 'zoom-in',
     options: [],
     onDown(editor, ctx) {
       const factor = ctx.event.altKey ? 1 / 1.25 : 1.25;

@@ -39,4 +39,8 @@ export const api = {
   checkUpdates: () => invoke('check_updates'),
   appInfo: () => invoke('app_info'),
   openUrl: (url) => invoke('open_url', { url }),
+  setMenuLocale: (locale) => invoke('set_menu_locale', { locale }),
+  recentProjects: (paths) => invoke('recent_projects', { paths }),
+  backupProject: (name, project) => invoke('backup_project', { name, project }),
+  closeWindow: () => invoke('close_window'),
 };

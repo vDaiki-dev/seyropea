@@ -10,7 +10,7 @@ use crate::wallpaper;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use serde_json::{json, Value};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 fn path_of(file: Option<FilePath>) -> Option<std::path::PathBuf> {
@@ -186,4 +186,70 @@ pub fn open_url(url: String) -> Result<(), String> {
     let args = [&url];
     let _ = std::process::Command::new(cmd).args(args).spawn();
     Ok(())
+}
+
+/// Metadatos ligeros de proyectos recientes: nombre, dimensiones y fecha de modificación.
+#[tauri::command]
+pub fn recent_projects(paths: Vec<String>) -> Value {
+    let items: Vec<Value> = paths
+        .into_iter()
+        .filter_map(|path_string| {
+            let path = std::path::PathBuf::from(&path_string);
+            let manifest = seyro::manifest(&path).ok()?;
+            let modified = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() * 1000);
+            Some(json!({
+                "path": path_string,
+                "name": manifest.name,
+                "width": manifest.width,
+                "height": manifest.height,
+                "layers": manifest.layers.len(),
+                "updatedAt": modified,
+            }))
+        })
+        .collect();
+    json!(items)
+}
+
+/// Copia local de seguridad; nunca sale del directorio de configuración de SeyroPea.
+#[tauri::command]
+pub fn backup_project(name: String, project: ProjectFile) -> Result<String, String> {
+    let dir = crate::settings::config_dir().join("backups");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("No se pudo crear la carpeta de respaldos: {e}"))?;
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(60)
+        .collect();
+    let file_name = if safe.is_empty() {
+        "sin-titulo.autosave.seyro".to_string()
+    } else {
+        format!("{safe}.autosave.seyro")
+    };
+    let path = dir.join(file_name);
+    seyro::save(&path, &project)?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn set_menu_locale(app: AppHandle, locale: String) -> Result<(), String> {
+    crate::build_menu(&app, &locale).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn close_window(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "No se encontró la ventana principal".to_string())?;
+    window.close().map_err(|e| e.to_string())
 }

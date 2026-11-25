@@ -5,6 +5,7 @@ import { CommandHistory } from './history.js';
 import { ToolRegistry, renderTextLayer } from './tools.js';
 import { FilterRegistry } from './filters.js';
 import { ThemeEngine } from './theme.js';
+import { I18n } from './i18n.js';
 import { UI } from './ui.js';
 import {
   uid, debounce, clamp, imageDataToBase64, base64ToBytes, arrayBufferToBase64,
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS = {
   monospaceNumbers: true, customThemes: [], themeOverrides: {}, recentFiles: [],
   checkUpdates: true, historyLimit: 50, showRulers: true, showGrid: false,
   smartGuides: true, pngColors: 0, wallpaperAuto: true,
+  language: 'es', autoBackup: true,
 };
 
 function loadScript(src) {
@@ -42,9 +44,17 @@ export class Editor {
     this.tools = null;
     this.filters = new FilterRegistry();
     this.ui = null;
+    this.i18n = null;
+    this.showingWelcome = true;
+    this.recentCache = [];
     this.persistSettings = debounce(() => {
       api.saveSettings(this.settings).catch((e) => this.ui?.toast(`No se pudo guardar la configuración: ${e}`, 'error'));
     }, 400);
+    this.persistBackup = debounce(() => {
+      if (!this.doc || this.settings.autoBackup === false) return;
+      api.backupProject(this.doc.name || 'sin-titulo', this.doc.toProjectFile())
+        .catch(() => { /* el respaldo es best-effort y nunca bloquea la edición */ });
+    }, 1800);
   }
 
   get history() {
@@ -68,25 +78,47 @@ export class Editor {
       );
     }
     this.theme = new ThemeEngine(this);
+    this.i18n = new I18n(this);
     this.ui = new UI(this);
     this.ui.mount();
-    this.newDocument(1200, 800, 'Sin título');
     await this.theme.init();
     try { this.appInfo = await api.appInfo(); } catch { this.appInfo = null; }
     await listen('menu-action', (payload) => {
       const action = typeof payload === 'string' ? payload : payload?.payload;
-      if (action) this.handleMenuAction(action);
+      // El mismo atajo puede llegar como evento nativo y como keydown del webview.
+      if (action) {
+        if (this.ui?.runAction) this.ui.runAction(action);
+        else this.handleMenuAction(action);
+      }
     });
     await listen('app-ready', () => this.ui.updateTitle());
+    await this.i18n.setLocale(this.i18n.locale, false);
+    await this.refreshRecentProjects();
     if (this.settings.checkUpdates) this.checkUpdates(true);
   }
 
   /* ---------- Documentos ---------- */
 
+  activateEditor() {
+    this.showingWelcome = false;
+    this.ui?.renderWelcome?.();
+  }
+
+  toggleWelcome() {
+    this.showingWelcome = !this.showingWelcome;
+    if (!this.showingWelcome && !this.docs.length) {
+      this.newDocument(1200, 800, 'Sin título');
+      return;
+    }
+    this.ui?.renderWelcome?.();
+    this.ui?.scheduleRender?.();
+  }
+
   newDocument(width = 1200, height = 800, name = 'Sin título', background = 'transparent') {
     const doc = SeyroDocument.create(this, width, height, name, background);
     this.docs.push(doc);
     this.doc = doc;
+    this.activateEditor();
     this.ui?.renderAll();
     this.ui?.toast(`Nuevo documento ${width} × ${height}`);
     return doc;
@@ -95,6 +127,7 @@ export class Editor {
   addDocument(doc) {
     this.docs.push(doc);
     this.doc = doc;
+    this.activateEditor();
     this.ui?.renderAll();
     return doc;
   }
@@ -104,10 +137,10 @@ export class Editor {
     const index = this.docs.indexOf(this.doc);
     this.docs.splice(index, 1);
     this.doc = this.docs[Math.max(0, index - 1)] || null;
+    this.ui?.renderAll();
     if (!this.doc) {
-      this.newDocument(1200, 800);
-    } else {
-      this.ui.renderAll();
+      this.showingWelcome = true;
+      this.ui?.renderWelcome?.();
     }
   }
 
@@ -144,6 +177,35 @@ export class Editor {
   addRecent(path) {
     this.settings.recentFiles = [path, ...(this.settings.recentFiles || []).filter((p) => p !== path)].slice(0, 12);
     this.persistSettings();
+    this.refreshRecentProjects();
+  }
+
+  removeRecent(path) {
+    this.settings.recentFiles = (this.settings.recentFiles || []).filter((p) => p !== path);
+    this.persistSettings();
+    this.recentCache = this.recentCache.filter((item) => item.path !== path);
+    this.ui?.renderWelcome?.();
+  }
+
+  clearRecentProjects() {
+    this.settings.recentFiles = [];
+    this.recentCache = [];
+    this.persistSettings();
+    this.ui?.renderWelcome?.();
+  }
+
+  async refreshRecentProjects() {
+    const paths = this.settings.recentFiles || [];
+    try {
+      this.recentCache = await api.recentProjects(paths);
+    } catch {
+      this.recentCache = paths.map((path) => ({ path, name: path.split(/[\\/]/).pop() || path }));
+    }
+    this.ui?.renderWelcome?.();
+  }
+
+  recentProjects() {
+    return this.recentCache || [];
   }
 
   async saveProject(saveAs = false) {
@@ -198,6 +260,7 @@ export class Editor {
   pushHistory(entry) {
     this.history?.push(entry);
     this.doc?.markDirty();
+    this.persistBackup();
   }
 
   pushStructural(label, mutate) {
@@ -483,7 +546,7 @@ export class Editor {
       'file.saveAs': () => this.saveProject(true),
       'file.export': () => this.ui.openExport(),
       'file.close': () => this.closeDocument(),
-      'file.quit': () => this.ui.toast('Use el botón de cierre de la ventana para salir'),
+      'file.quit': () => this.ui.openCloseConfirm(this.docs.filter((d) => d.dirty)),
       'edit.undo': () => this.undo(),
       'edit.redo': () => this.redo(),
       'edit.cut': () => this.copy(true),
@@ -529,7 +592,10 @@ export class Editor {
       'view.rulers': () => { this.settings.showRulers = !this.settings.showRulers; this.persistSettings(); this.ui.renderViewport(); },
       'view.grid': () => { this.settings.showGrid = !this.settings.showGrid; this.persistSettings(); this.ui.renderViewport(); },
       'view.guides': () => { this.settings.smartGuides = !this.settings.smartGuides; this.persistSettings(); },
+      'view.home': () => this.toggleWelcome(),
       'help.shortcuts': () => this.ui.openShortcuts(),
+      'help.readme': () => this.ui.openReadme(),
+      'help.github': () => this.ui.openGitHub(),
       'help.update': () => this.checkUpdates(false),
       'help.about': () => this.ui.openAbout(),
     };
@@ -557,11 +623,28 @@ export class Editor {
   async openRecentPath(path) {
     try {
       const project = await api.loadProject(path);
-      this.addDocument(SeyroDocument.fromProjectFile(this, project));
+      const doc = SeyroDocument.fromProjectFile(this, project);
+      doc.filePath = path;
+      this.addDocument(doc);
       this.addRecent(path);
     } catch (e) {
       this.ui.toast(`No se pudo abrir reciente: ${e.message || e}`, 'error');
     }
+  }
+
+  resetSettings() {
+    for (const key of Object.keys(this.settings)) delete this.settings[key];
+    Object.assign(this.settings, DEFAULT_SETTINGS);
+    this.theme.currentId = this.settings.theme;
+    this.i18n?.setLocale(this.settings.language, false);
+    this.theme.apply();
+    this.ui?.refreshThemeControls?.();
+    this.refreshRecentProjects();
+    this.persistSettings();
+  }
+
+  closeWindow() {
+    api.closeWindow().catch((e) => this.ui?.toast(`No se pudo cerrar: ${e}`, 'error'));
   }
 
   updateTextLayer(layer, options) {
