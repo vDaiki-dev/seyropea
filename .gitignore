@@ -1,0 +1,17 @@
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+*.rs.bk
+
+# Node / frontend (no hay dependencias npm en producción)
+node_modules/
+dist/
+.vite/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Configuración local generada en tiempo de ejecución
+*.seyro.tmp
