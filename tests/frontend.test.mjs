@@ -1,6 +1,7 @@
 // Pruebas deterministas de la lógica pura del frontend. Sin DOM, sin npm, sin red.
 // Ejecutar: node tests/frontend.test.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 globalThis.ImageData = class {
   constructor(data, width, height) {
@@ -13,6 +14,8 @@ globalThis.ImageData = class {
 
 const { FilterRegistry } = await import('../src/frontend/filters.js');
 const { CommandHistory } = await import('../src/frontend/history.js');
+const { floodSelection, ToolRegistry } = await import('../src/frontend/tools.js');
+const { I18n, DICTIONARIES, SUPPORTED_LOCALES } = await import('../src/frontend/i18n.js');
 const {
   clamp, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, mulberry32,
   diffRect, extractRect, injectRect, rectFromPoints,
@@ -112,6 +115,103 @@ test('historial deshace y rehace', () => {
   assert.deepEqual(calls, [
     ['B', 'undo'], ['A', 'undo'], ['A', 'redo'], ['B', 'redo'],
   ]);
+});
+
+test('relleno contiguo y no contiguo respetan tolerancia', () => {
+  const width = 4, height = 4;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    data[i * 4] = 0; data[i * 4 + 1] = 0; data[i * 4 + 2] = 0; data[i * 4 + 3] = 255;
+  }
+  for (const idx of [0, 15]) {
+    data[idx * 4] = 255; data[idx * 4 + 1] = 0; data[idx * 4 + 2] = 0;
+  }
+  const image = { data, width, height };
+  const doc = { width, height, selection: null };
+  const contiguous = floodSelection(image, doc, { x: 0, y: 0 }, 12, true);
+  const global = floodSelection(image, doc, { x: 0, y: 0 }, 12, false);
+  assert.equal(contiguous.reduce((a, v) => a + v, 0) / 255, 1);
+  assert.equal(global.reduce((a, v) => a + v, 0) / 255, 2);
+});
+
+test('relleno respeta selección y desplazamiento de capa', () => {
+  const width = 4, height = 4;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    data[i * 4] = 255; data[i * 4 + 1] = 255; data[i * 4 + 2] = 255; data[i * 4 + 3] = 255;
+  }
+  const selection = new Uint8Array(width * height);
+  selection[1 * width + 1] = 255;
+  const doc = { width, height, selection };
+  const mask = floodSelection({ data, width, height }, doc, { x: 0, y: 0 }, 0, true, { x: 1, y: 1 });
+  assert.equal(mask.reduce((a, v) => a + v, 0) / 255, 1);
+});
+
+test('cubeta con origen visible traslada la máscara a la capa activa y registra undo', () => {
+  let written = null;
+  const layer = {
+    id: 'capa-1', x: 1, y: 1, width: 2, height: 2, locked: false,
+    imageData: () => new ImageData(new Uint8ClampedArray(2 * 2 * 4), 2, 2),
+    putImageData: (img) => { written = img; },
+  };
+  const data = new Uint8ClampedArray(4 * 4 * 4);
+  for (let i = 0; i < 16; i++) {
+    data[i * 4] = 255; data[i * 4 + 1] = 255; data[i * 4 + 2] = 255; data[i * 4 + 3] = 255;
+  }
+  const commits = [];
+  const editor = {
+    doc: {
+      width: 4, height: 4, selection: null,
+      activeLayer: () => layer,
+      flattenedImageData: () => ({ data, width: 4, height: 4 }),
+      invalidate: () => {},
+    },
+    state: { fgColor: '#00ff00', bgColor: '#ffffff' },
+    toolOptions: { bucket: { tolerance: 0, contiguous: false, source: 'visible', useBackground: false } },
+    commitPixels: (label, target, before) => commits.push([label, target.id, before]),
+  };
+  const bucket = new ToolRegistry(editor).get('bucket');
+  bucket.onDown(editor, { x: 0, y: 0 });
+  assert.ok(written);
+  let green = 0;
+  for (let i = 0; i < written.data.length; i += 4) {
+    if (written.data[i] === 0 && written.data[i + 1] === 255) green++;
+  }
+  assert.equal(green, 4);
+  assert.deepEqual(commits.map((c) => c[0]), ['Relleno']);
+});
+
+test('i18n resuelve idiomas, respeta fallback y expone diez locales', () => {
+  const i18n = new I18n({ settings: { language: 'en' } });
+  assert.equal(i18n.locale, 'en');
+  assert.equal(i18n.t('welcome.title'), 'Welcome to SeyroPea');
+  assert.equal(i18n.t('clave.inexistente', 'Respaldo'), 'Respaldo');
+  assert.equal(SUPPORTED_LOCALES.length, 10);
+  assert.ok(Object.values(DICTIONARIES.es).every((v) => typeof v === 'string'));
+});
+
+test('todas las claves i18n estáticas de la UI tienen traducción base', () => {
+  const keys = new Set();
+  for (const file of ['index.html', 'ui.js']) {
+    const source = readFileSync(new URL(`../src/frontend/${file}`, import.meta.url), 'utf8');
+    for (const match of source.matchAll(/data-i18n(?:-title)?="([^"]+)"/g)) keys.add(match[1]);
+    for (const match of source.matchAll(/\bt\('([a-zA-Z0-9_.-]+)'/g)) keys.add(match[1]);
+  }
+  const missing = [...keys].filter((key) => !(key in DICTIONARIES.es));
+  assert.deepEqual(missing, []);
+});
+
+test('estructura de una sola pestaña y capas sin bloqueo de clics', () => {
+  const html = readFileSync(new URL('../src/frontend/index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/frontend/styles.css', import.meta.url), 'utf8');
+  assert.equal((html.match(/id="tabs"/g) || []).length, 1);
+  assert.equal((html.match(/class="tabbar"/g) || []).length, 1);
+  assert.match(html, /<div id="app" class="welcome-mode">/);
+  assert.match(css, /#app\.welcome-mode \.workspace, #app\.welcome-mode \.options-bar \{ display: none; \}/);
+  assert.match(css, /#modal-root \{[^}]*pointer-events: none/s);
+  assert.match(css, /#toast-root \{[^}]*pointer-events: none/s);
+  assert.match(css, /--checker-a:/);
+  assert.match(css, /--checker-b:/);
 });
 
 console.log(`\n${passed} pruebas frontend superadas`);

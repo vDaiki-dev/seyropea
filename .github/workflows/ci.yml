@@ -61,6 +61,9 @@ jobs:
           test -f src/frontend/vendor/upng/LICENSE-UPNG.txt
           test -f src/frontend/vendor/upng/LICENSE-pako.txt
           test -f LICENSE
+          test -f src/frontend/assets/README.md
+          test -f src/frontend/icons.js
+          test -f src/frontend/i18n.js
           test -f src-tauri/icons/icon.ico
           test -f src-tauri/icons/icon.icns
           printf '%s\n' "OK: bundle 100% local"
