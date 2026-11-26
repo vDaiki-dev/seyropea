@@ -1,6 +1,7 @@
 pub mod codec;
 pub mod commands;
 pub mod fonts;
+pub mod security;
 pub mod settings;
 pub mod seyro;
 pub mod themes;

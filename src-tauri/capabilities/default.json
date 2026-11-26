@@ -4,12 +4,9 @@
   "description": "Permisos mínimos para la ventana principal de SeyroPea",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "core:event:default",
-    "core:window:default",
-    "core:app:default",
-    "core:webview:default",
-    "core:menu:default",
-    "dialog:default"
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

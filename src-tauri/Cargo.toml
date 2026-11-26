@@ -1,6 +1,6 @@
 [package]
 name = "seyropea"
-version = "0.1.0"
+version = "0.2.0"
 description = "Estudio profesional de edición de imágenes de escritorio, ligero y offline"
 authors = ["vDaiki-dev"]
 license = "GPL-3.0-only"
@@ -24,6 +24,7 @@ flate2 = "1"
 dirs = "7"
 ureq = { version = "3.5.2", default-features = false, features = ["rustls", "json", "gzip"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff"] }
+url = "2.5"
 
 [profile.release]
 opt-level = 3

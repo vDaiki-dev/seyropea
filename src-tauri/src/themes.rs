@@ -1,6 +1,7 @@
 //! Motor de temas determinista: extracción algorítmica de paletas a partir de una imagen.
 //! Sin redes neuronales, sin servicios remotos: cuantización por histograma + k-means.
 
+use crate::codec;
 use image::imageops::FilterType;
 use image::GenericImageView;
 use serde::Serialize;
@@ -86,8 +87,7 @@ struct Cluster {
 }
 
 pub fn palette_from_image(path: &Path) -> Result<Palette, String> {
-    let img =
-        image::open(path).map_err(|e| format!("No se pudo leer la imagen de referencia: {e}"))?;
+    let img = codec::decode_limited(path)?;
     let (w, h) = img.dimensions();
     let scale = (96.0 / w.max(h) as f64).min(1.0);
     let tw = ((w as f64 * scale).round() as u32).max(1);
