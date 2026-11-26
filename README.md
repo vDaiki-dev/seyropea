@@ -6,6 +6,8 @@ SeyroPea v0.2.0 es una aplicación de escritorio real construida con **Tauri v2*
 
 > Sin cuentas, sin telemetría, sin CDNs, sin modelos generativos. La edición es 100% algorítmica y determinista sobre buffers RGBA.
 
+**Sitio web:** [vdaiki-dev.github.io/seyropea](https://vdaiki-dev.github.io/seyropea/) · **Release actual:** [v0.2.0](https://github.com/vDaiki-dev/seyropea/releases/tag/v0.2.0)
+
 ---
 
 ## Capturas

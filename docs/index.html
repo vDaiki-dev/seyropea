@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SeyroPea — Editor de imágenes nativo, ligero, gratuito y offline</title>
+  <meta name="description" content="SeyroPea v0.2.0: estudio de edición de imágenes de escritorio con Tauri v2 y Canvas2D. Capas, filtros deterministas, temas, formato .seyro y 100% offline, sin IA generativa.">
+  <meta name="theme-color" content="#16161a">
+  <meta property="og:title" content="SeyroPea v0.2.0">
+  <meta property="og:description" content="Editor de imágenes de escritorio nativo, ligero, gratuito, offline y sin IA.">
+  <meta property="og:image" content="screenshots/01-editor-principal.png">
+  <style>
+    :root {
+      --bg: #101013;
+      --surface: #17171c;
+      --surface-alt: #1e1e24;
+      --border: #2c2c34;
+      --text: #f5f1ea;
+      --muted: #a9a5a0;
+      --accent: #ff8a1f;
+      --accent-strong: #f97316;
+      --leaf: #7bc86c;
+      --radius: 14px;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .35);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    img { max-width: 100%; height: auto; display: block; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    .site-header {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(16, 16, 19, .92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .site-header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 68px; }
+    .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 700; letter-spacing: .02em; }
+    .brand:hover { text-decoration: none; }
+    .brand svg { width: 34px; height: 34px; border-radius: 9px; }
+    .nav { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+    .nav a { color: var(--muted); font-size: .94rem; }
+    .nav a:hover { color: var(--text); text-decoration: none; }
+    .nav .cta-nav {
+      padding: 8px 15px; border-radius: 999px; background: var(--accent); color: #1a1207;
+      font-weight: 700; border: 1px solid var(--accent-strong);
+    }
+    .nav .cta-nav:hover { background: #ffa348; color: #1a1207; text-decoration: none; }
+    .hero { padding: 88px 0 56px; text-align: center; }
+    .eyebrow {
+      display: inline-block; padding: 6px 13px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--muted); font-size: .82rem; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .hero h1 {
+      margin: 20px 0 12px; font-size: clamp(2.4rem, 6vw, 4.2rem); line-height: 1.08;
+      letter-spacing: -.04em;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p.lead { max-width: 720px; margin: 0 auto; color: var(--muted); font-size: 1.12rem; }
+    .badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin: 26px 0 30px; }
+    .badge {
+      padding: 5px 11px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--surface-alt); color: var(--muted); font-size: .8rem; font-weight: 600;
+    }
+    .badge.green { color: var(--leaf); border-color: #35523a; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 12px 21px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--surface-alt); color: var(--text); font-weight: 650; font-size: .95rem;
+    }
+    .button:hover { text-decoration: none; border-color: var(--accent); }
+    .button.primary { background: var(--accent); color: #1a1207; border-color: var(--accent-strong); }
+    .button.primary:hover { background: #ffa348; color: #1a1207; }
+    section { padding: 54px 0; }
+    section + section { border-top: 1px solid var(--border); }
+    h2 { margin: 0 0 10px; font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -.025em; }
+    .section-intro { margin: 0 0 28px; color: var(--muted); max-width: 720px; }
+    .grid { display: grid; gap: 16px; }
+    .features { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .card {
+      padding: 22px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+    }
+    .card h3 { margin: 0 0 6px; font-size: 1.04rem; }
+    .card p { margin: 0; color: var(--muted); font-size: .93rem; }
+    .card .icon { font-size: 1.4rem; color: var(--accent); line-height: 1; }
+    .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; align-items: start; }
+    figure { margin: 0; }
+    figure .frame {
+      border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+      background: var(--surface); box-shadow: var(--shadow);
+    }
+    figure img { width: 100%; }
+    figcaption { margin-top: 10px; color: var(--muted); font-size: .9rem; text-align: center; }
+    .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px; }
+    .list { margin: 14px 0 0; padding-left: 20px; color: var(--muted); }
+    .list li + li { margin-top: 7px; }
+    code {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      border-radius: 5px; padding: 1px 6px; font-size: .88em;
+    }
+    .platforms { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .platform strong { display: block; margin-bottom: 4px; }
+    .platform span { color: var(--muted); font-size: .9rem; }
+    footer {
+      border-top: 1px solid var(--border); padding: 28px 0 40px;
+      color: var(--muted); font-size: .88rem;
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; }
+    @media (max-width: 640px) {
+      .site-header .wrap { flex-direction: column; align-items: flex-start; padding: 12px 0; }
+      .nav { gap: 14px; }
+      .hero { padding-top: 54px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="#top" aria-label="SeyroPea, ir al inicio">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true">
+          <defs>
+            <linearGradient id="lg-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#222227"/><stop offset="1" stop-color="#121214"/></linearGradient>
+            <linearGradient id="lg-accent" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a1f"/><stop offset="1" stop-color="#f97316"/></linearGradient>
+            <linearGradient id="lg-leaf" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3f9142"/><stop offset="1" stop-color="#7bc86c"/></linearGradient>
+          </defs>
+          <rect x="24" y="24" width="976" height="976" rx="216" fill="url(#lg-bg)"/>
+          <path d="M726 290c-42-52-108-78-190-78-126 0-209 62-209 154 0 76 55 118 176 143 104 21 127 40 127 74 0 43-45 68-118 68-77 0-139-28-184-79l-91 87c62 74 154 115 271 115 139 0 228-65 228-169 0-84-58-125-185-151-110-23-132-37-132-67 0-35 38-55 99-55 58 0 105 20 141 57z" fill="url(#lg-accent)"/>
+          <circle cx="764" cy="246" r="40" fill="url(#lg-leaf)"/>
+        </svg>
+        SeyroPea
+      </a>
+      <nav class="nav" aria-label="Navegación principal">
+        <a href="#caracteristicas">Características</a>
+        <a href="#capturas">Capturas</a>
+        <a href="#descargas">Descargas</a>
+        <a href="https://github.com/vDaiki-dev/seyropea">GitHub</a>
+        <a class="cta-nav" href="https://github.com/vDaiki-dev/seyropea/releases/tag/v0.2.0">Descargar v0.2.0</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="wrap">
+      <div class="hero">
+        <span class="eyebrow">Lanzamiento v0.2.0 · 25 de noviembre de 2026</span>
+        <h1>Edita imágenes <span>sin depender de nadie.</span></h1>
+        <p class="lead">SeyroPea es un estudio de edición de imágenes de escritorio: nativo, ligero, gratuito y 100% offline. Construido con Tauri v2 y Canvas2D puro, sin frameworks en runtime ni modelos generativos.</p>
+        <div class="badges">
+          <span class="badge">Tauri v2 + Rust</span>
+          <span class="badge">Canvas2D</span>
+          <span class="badge green">100% offline</span>
+          <span class="badge green">Sin IA generativa</span>
+          <span class="badge">GPL-3.0-only</span>
+          <span class="badge">Linux · Windows · macOS</span>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/vDaiki-dev/seyropea/releases/tag/v0.2.0">Descargar v0.2.0</a>
+          <a class="button" href="https://github.com/vDaiki-dev/seyropea">Ver código en GitHub</a>
+          <a class="button" href="https://github.com/vDaiki-dev/seyropea/blob/main/README.md">Leer documentación</a>
+        </div>
+      </div>
+    </div>
+
+    <section id="caracteristicas">
+      <div class="wrap">
+        <h2>Un editor completo, sin peso innecesario</h2>
+        <p class="section-intro">Todo el procesamiento es algorítmico y determinista sobre buffers RGBA. Sin cuentas, sin telemetría, sin CDNs y sin fuentes remotas.</p>
+        <div class="grid features">
+          <article class="card"><div class="icon">▣</div><h3>Capas y composición</h3><p>15 modos de fusión, opacidad, visibilidad, bloqueo, duplicado y reordenación con historial reversible.</p></article>
+          <article class="card"><div class="icon">◇</div><h3>14 herramientas</h3><p>Mover, transformar, marco, lazo, varita, recorte, cuentagotas, pincel, borrador, cubeta, texto, formas, mano y zoom.</p></article>
+          <article class="card"><div class="icon">◈</div><h3>Cubeta inteligente</h3><p>Relleno contiguo con tolerancia, capa activa o capas visibles y Undo/Redo integrados (atajo <code>G</code>).</p></article>
+          <article class="card"><div class="icon">◐</div><h3>Filtros deterministas</h3><p>18 filtros y ajustes tonales con vista previa y comparación antes de aplicar.</p></article>
+          <article class="card"><div class="icon">◧</div><h3>Formato <code>.seyro</code></h3><p>Manifiesto JSON y capas RGBA8 comprimidas con DEFLATE, con validación y límites estrictos.</p></article>
+          <article class="card"><div class="icon">◍</div><h3>Temas e idiomas</h3><p>Seyro Dark Orange, Dracula y Tokyo Night, wallpaper → paleta, 10 idiomas persistentes y fuentes del sistema.</p></article>
+          <article class="card"><div class="icon">◉</div><h3>Componentes reutilizables</h3><p><code>Toast</code>, <code>Modal</code>, <code>Tooltip</code>, <code>Badge</code> y un <code>SkeletonLoader</code> theme-aware inspirado en DIVAE.</p></article>
+          <article class="card"><div class="icon">◈</div><h3>Frontera endurecida</h3><p>Rutas e IDs validados, texto escapado, límites de descompresión, CSP estricto y permisos Tauri mínimos.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="capturas">
+      <div class="wrap">
+        <h2>Así se ve SeyroPea v0.2.0</h2>
+        <p class="section-intro">Interfaz pulida con un solo tablero de pestañas, ajedrezado nítido, paneles sin solapes y pantalla de inicio con recientes locales.</p>
+        <div class="shots">
+          <figure>
+            <div class="frame"><img src="screenshots/01-editor-principal.png" alt="Editor principal de SeyroPea v0.2.0 con capas, filtros y lienzo ajedrezado"></div>
+            <figcaption>Editor principal — herramientas, opciones, capas e historial.</figcaption>
+          </figure>
+          <figure>
+            <div class="frame"><img src="screenshots/02-pantalla-inicio.png" alt="Pantalla de inicio de SeyroPea v0.2.0 con proyectos recientes y preferencias"></div>
+            <figcaption>Pantalla de inicio — Nuevo, Abrir, recientes, ajustes y About.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="seguridad">
+      <div class="wrap split">
+        <div>
+          <h2>Offline por diseño</h2>
+          <p class="section-intro">La aplicación se ejecuta con recursos incluidos en el binario. La única salida a red es una comprobación opcional de actualizaciones que falla en silencio.</p>
+          <ul class="list">
+            <li>Sin telemetría, cuentas ni servicios en la nube.</li>
+            <li>Sin CDN, fuentes o iconos remotos en runtime.</li>
+            <li>Diálogos nativos y archivos guardados solo en local.</li>
+            <li>Exportación PNG/JPEG/WebP/BMP con UPNG.js + pako vendorizados bajo MIT.</li>
+          </ul>
+        </div>
+        <div>
+          <h2>Seguridad y estabilidad</h2>
+          <p class="section-intro">La frontera entre Rust y JavaScript valida todo dato no confiable antes de usarlo.</p>
+          <ul class="list">
+            <li>Escapado de nombres de capas, temas, metadatos y README local.</li>
+            <li>Rutas absolutas normalizadas, sin traversal, con extensión comprobada.</li>
+            <li>Apertura de URLs con host permitido y sin shell.</li>
+            <li>Archivos corruptos o sobredimensionados fallan con avisos breves, sin crashes.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="descargas">
+      <div class="wrap">
+        <h2>Descarga SeyroPea v0.2.0</h2>
+        <p class="section-intro">Paquetes firmados por el workflow de Release con sumas <code>SHA256SUMS.txt</code>. También puedes compilar desde el código fuente con Cargo y Tauri CLI.</p>
+        <div class="grid platforms">
+          <div class="card platform"><strong>Linux</strong><span>AppImage y .deb de 64 bits</span><p><a href="https://github.com/vDaiki-dev/seyropea/releases/download/v0.2.0/SeyroPea_0.2.0_amd64.AppImage">AppImage</a> · <a href="https://github.com/vDaiki-dev/seyropea/releases/download/v0.2.0/SeyroPea_0.2.0_amd64.deb">DEB</a></p></div>
+          <div class="card platform"><strong>Windows</strong><span>Instalador MSI y EXE NSIS</span><p><a href="https://github.com/vDaiki-dev/seyropea/releases/download/v0.2.0/SeyroPea_0.2.0_x64_es-ES.msi">MSI</a> · <a href="https://github.com/vDaiki-dev/seyropea/releases/download/v0.2.0/SeyroPea_0.2.0_x64-setup.exe">EXE</a></p></div>
+          <div class="card platform"><strong>macOS</strong><span>DMG y archivo .app comprimido</span><p><a href="https://github.com/vDaiki-dev/seyropea/releases/download/v0.2.0/SeyroPea_0.2.0_aarch64.dmg">DMG</a> · <a href="https://github.com/vDaiki-dev/seyropea/releases/download/v0.2.0/SeyroPea.app.tar.gz">APP</a></p></div>
+        </div>
+        <p style="margin-top:22px"><a class="button primary" href="https://github.com/vDaiki-dev/seyropea/releases/tag/v0.2.0">Ver release completa y sumas SHA256</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>SeyroPea v0.2.0 · GPL-3.0-only · © 2026 vDaiki-dev</span>
+      <span><a href="https://github.com/vDaiki-dev/seyropea">Repositorio</a> · <a href="https://github.com/vDaiki-dev/seyropea/releases">Releases</a> · <a href="https://github.com/vDaiki-dev/seyropea/blob/main/CHANGELOG.md">Changelog</a></span>
+    </div>
+  </footer>
+</body>
+</html>
