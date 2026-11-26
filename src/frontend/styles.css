@@ -65,6 +65,27 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   border: 1px solid var(--accent-soft); border-radius: 999px; padding: 2px 8px;
   white-space: nowrap;
 }
+.badge-count {
+  min-width: 30px; text-align: center; color: var(--text); border-color: var(--border);
+  background: var(--surface-alt); font-family: var(--mono-font); letter-spacing: 0;
+}
+.badge-accent { color: #17120d; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+
+/* Tooltip local: se muestra sobre el control pero nunca intercepta el clic. */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip); position: absolute; left: 50%; bottom: calc(100% + 7px);
+  transform: translateX(-50%); background: var(--surface-alt); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+  font-size: .76em; line-height: 1.2; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  opacity: 0; visibility: hidden; pointer-events: none; z-index: 90; transition: opacity .12s ease;
+}
+[data-tooltip][data-shortcut]::after {
+  content: attr(data-tooltip) " · " attr(data-shortcut);
+}
+[data-tooltip]:hover::after, [data-tooltip]:focus-visible::after {
+  opacity: 1; visibility: visible;
+}
 .titlebar-center { flex: 0 0 auto; justify-content: center; }
 .workspace-label { color: var(--text-muted); font-size: .82em; letter-spacing: .06em; text-transform: uppercase; }
 .title-btn {
@@ -285,6 +306,30 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 .welcome-links .icon { width: 17px; height: 17px; color: var(--accent-alt); }
 .welcome-footer { display: flex; justify-content: space-between; gap: 12px; color: var(--text-muted); font-size: .76em; }
 
+/* SkeletonLoader: matriz de puntos con tres tamaños y matices, como DIVAE. */
+.skeleton { display: grid; gap: 7px; padding: 4px 2px; color: var(--accent); }
+.skeleton-dots { display: flex; align-items: center; gap: 7px; height: 18px; }
+.skeleton-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+  animation: skeleton-dot 1.15s ease-in-out infinite;
+}
+.skeleton-dot.dot-md { width: 8px; height: 8px; opacity: .75; }
+.skeleton-dot.dot-lg { width: 12px; height: 12px; opacity: .5; }
+.skeleton-bars { display: flex; margin-bottom: 2px; }
+.skeleton-bar {
+  height: 9px; border-radius: 5px;
+  background: linear-gradient(90deg, var(--surface-alt), var(--surface-hover), var(--surface-alt));
+  background-size: 200% 100%; animation: skeleton-shift 1.4s linear infinite;
+}
+@keyframes skeleton-dot {
+  0%, 100% { transform: scale(.62); opacity: .35; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+@keyframes skeleton-shift { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-dot, .skeleton-bar { animation: none; }
+}
+
 /* ---------- Modales ---------- */
 
 #modal-root { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
@@ -294,7 +339,8 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   padding: 9px 13px; border-radius: 6px; max-width: 360px; box-shadow: 0 8px 24px rgba(0,0,0,.4); font-size: .84em;
   pointer-events: auto;
 }
-.toast.error { border-left-color: #ef4444; }
+.toast.error, .toast-error { border-left-color: #ef4444; }
+.toast-success { border-left-color: #22c55e; }
 
 .modal-backdrop {
   position: absolute; inset: 0; background: rgba(0, 0, 0, .7); display: flex;
