@@ -2,7 +2,7 @@
 
 **Estudio de edición de imágenes de escritorio: nativo, ligero, gratuito, offline y sin IA.**
 
-SeyroPea v0.1.0 es una aplicación de escritorio real construida con **Tauri v2** y **Canvas2D puro** (JavaScript sin frameworks ni bundler en runtime). El núcleo en Rust gestiona códecs, diálogos nativos, el formato `.seyro`, temas, fuentes, detección de fondo y actualizaciones opcionales.
+SeyroPea v0.2.0 es una aplicación de escritorio real construida con **Tauri v2** y **Canvas2D puro** (JavaScript sin frameworks ni bundler en runtime). El núcleo en Rust gestiona códecs, diálogos nativos, el formato `.seyro`, temas, fuentes, detección de fondo y actualizaciones opcionales.
 
 > Sin cuentas, sin telemetría, sin CDNs, sin modelos generativos. La edición es 100% algorítmica y determinista sobre buffers RGBA.
 
@@ -35,6 +35,8 @@ SeyroPea v0.1.0 es una aplicación de escritorio real construida con **Tauri v2*
 - **Seguridad de trabajo**: el título y las pestañas muestran `*` cuando hay cambios sin guardar; el salir ofrece confirmación y opción de guardar; además se mantiene un respaldo local `.seyro` configurable.
 - **Exportación**: PNG, JPEG, WebP y BMP. PNG optimizado con **UPNG.js + pako incluidos localmente** (MIT), con opción de cuantización sin pérdida o con número de colores.
 - **Actualizaciones**: consulta opcional a GitHub Releases solo si está activada; si no hay red, falla en silencio.
+- **Componentes estándar reutilizables**: `Toast`, `Modal`, `Tooltip`, `Badge` y un `SkeletonLoader` theme-aware inspirado en la matriz de puntos de [DIVAE](https://github.com/intriXlabs/DIVAE) (tres tamaños de punto, patrones deterministas y sin dependencias).
+- **Frontera endurecida**: validación de rutas y IDs, escapado de nombres de capas/temas/metadatos y del README local, límites de dimensiones y descompresión para imágenes y `.seyro`, CSP estricto, permisos Tauri mínimos y apertura de URLs sin shell. Archivos corruptos o sobredimensionados fallan con avisos breves, sin crashes.
 
 ## Requisitos
 
@@ -97,8 +99,8 @@ Al abrir la aplicación se muestra la pantalla de bienvenida con accesos directo
 Resumen (detalles en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)):
 
 ```
-src-tauri/src/        Rust: codecs, .seyro, settings, temas, fuentes, wallpaper, updater, menú, IPC
-src/frontend/         JavaScript + Canvas2D: documento, capas, historial, herramientas, filtros, UI, i18n e iconos SVG
+src-tauri/src/        Rust: codecs, .seyro, security, settings, temas, fuentes, wallpaper, updater, menú, IPC
+src/frontend/         JavaScript + Canvas2D: documento, capas, historial, herramientas, filtros, UI, componentes, i18n, seguridad e iconos SVG
 src/frontend/assets/  README local mostrado dentro de la app, sin red
 src/frontend/vendor/  UPNG.js + pako (MIT), incluidos localmente
 assets/brand/         SVG maestro, iconos y script de regeneración

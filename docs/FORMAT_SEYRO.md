@@ -52,7 +52,7 @@ Los buffers de capa aparecen **en el mismo orden** que `manifest.layers`. Cada b
 
 ## Compatibilidad y versionado
 
-- `version` se valida estrictamente. v0.1.0 solo acepta `1`.
+- `format` y `version` se validan estrictamente. v0.2.0 solo acepta `seyro` y `1`.
 - El magic incluye la versión principal para detectar de un vistazo si un archivo pertenece a otra generación.
 - Versiones futuras pueden añadir campos opcionales al manifiesto; un lector v1 debe ignorar campos desconocidos y conservarlos si reescribe el archivo.
 - La selección activa **no** se guarda en v1 (no forma parte del documento).
@@ -61,7 +61,7 @@ Los buffers de capa aparecen **en el mismo orden** que `manifest.layers`. Cada b
 
 - Sin pérdida: RGBA8 exacto, sin cuantización.
 - Determinista: el mismo documento produce el mismo manifiesto y la misma compresión.
-- Validación: magic, longitudes, número de capas, `dataLen` y tamaño esperado `width*height*4`.
+- Validación: magic, `format`, `version`, longitudes, número de capas, `dataLen` y tamaño esperado `width*height*4`; la descompresión está acotada al tamaño declarado.
 
 ## Ejemplo de lectura desde Rust
 

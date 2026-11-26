@@ -9,7 +9,16 @@
 - [x] Temas, wallpaper → paleta y fuentes del sistema.
 - [x] Exportación local (UPNG.js/pako) y CI/CD multiplataforma.
 
-## v0.2.0 — Edición avanzada
+## v0.2.0 — Interfaz, componentes y seguridad (publicada)
+
+- [x] UI/UX pulida: stacking y `pointer-events` limpios, workspace sólido, ajedrezado nítido e iconos/espaciado uniformes.
+- [x] Componentes reutilizables `Toast`, `Modal`, `Tooltip`, `Badge` y `SkeletonLoader` inspirado en DIVAE.
+- [x] Welcome Screen con recientes locales, metadata, thumbnail, ruta, abrir/limpiar y About v0.2.0.
+- [x] Settings con 10 idiomas, temas, wallpaper, fuentes, README local, GitHub y update-check.
+- [x] Cubeta con tolerancia, capa activa/capas visibles e integración Undo/Redo.
+- [x] Endurecimiento: escape de texto, IDs/rutas validados, límites de imagen/`.seyro`, CSP y permisos mínimos.
+
+## Pendiente — Edición avanzada
 
 - [ ] Máscaras de capa y recorte a grupo (*clipping mask*).
 - [ ] Transformación con persistencia (*warp*) y perspectiva.

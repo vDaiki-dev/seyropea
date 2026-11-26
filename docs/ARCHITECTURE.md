@@ -1,4 +1,4 @@
-# Arquitectura de SeyroPea v0.1.0
+# Arquitectura de SeyroPea v0.2.0
 
 ## 1. Objetivo y restricciones
 
@@ -23,7 +23,7 @@ La webview **no convierte SeyroPea en una web app**: no hay URL remota, servidor
 ### Versiones fijadas
 
 - `tauri = 2.12.7`, `tauri-build = 2.7.6`, `tauri-plugin-dialog = 2.8.4`.
-- `image = 0.25.10` (PNG/JPEG/WebP/BMP/TIFF), `flate2 = 1` (DEFLATE/zlib), `serde`/`serde_json`, `dirs = 7`, `ureq = 3.5.2` con rustls.
+- `image = 0.25.10` (PNG/JPEG/WebP/BMP/TIFF), `flate2 = 1` (DEFLATE/zlib), `serde`/`serde_json`, `dirs = 7`, `ureq = 3.5.2` con rustls, `url = 2.5` para validar URLs en `open_url`.
 - Rust mínimo declarado: **1.90**; verificado con 1.100.0.
 
 ## 3. Estructura
@@ -33,9 +33,10 @@ src-tauri/src/
   main.rs         Punto de entrada; windows_subsystem en release.
   lib.rs          Builder de Tauri, menú nativo y registro de comandos IPC.
   commands.rs     Comandos invocados desde JS (diálogos, codecs, settings, .seyro, etc.).
-  codec.rs        Decodificación/codificación RGBA8 y miniaturas PNG en base64.
-  seyro.rs        Contenedor .seyro v1: manifiesto + capas zlib.
-  settings.rs     settings.json local, sobrescritura de temas, archivos de tema.
+  security.rs     Validación pura de rutas, IDs, colores, dimensiones y tamaños de buffer.
+  codec.rs        Decodificación/codificación RGBA8 con límites y miniaturas PNG en base64.
+  seyro.rs        Contenedor .seyro v1: manifiesto validado + capas zlib acotadas.
+  settings.rs     settings.json normalizado, sobrescritura de temas, archivos de tema.
   themes.rs       Extracción determinista de paleta (cuantización + k-means en HSL).
   fonts.rs        Fuentes instaladas en el sistema, sin red.
   wallpaper.rs    Detección best-effort por compositor/SO.
@@ -46,10 +47,12 @@ src/frontend/
   editor.js       Controlador: documentos, historial, menú/atajos, exportación.
   document.js     Modelo de documento/capas, composición, selección, serialización.
   history.js      CommandHistory con parches y snapshots.
-  tools.js        ToolRegistry con 13 herramientas.
+  tools.js        ToolRegistry con 14 herramientas (incluida la cubeta).
   filters.js      FilterRegistry con 18 operaciones deterministas.
   theme.js        ThemeEngine: temas, personalización, wallpaper → paleta.
   ui.js           Canvas2D, paneles, diálogos y atajos.
+  components.js   Toast, Modal, Tooltip, Badge y SkeletonLoader (matriz de puntos, theme-aware).
+  security.js     Sanitización de texto, IDs, rutas, colores, thumbnails y settings.
   api.js / util.js
   vendor/upng/    UPNG.js + pako (MIT), carga local bajo demanda.
 ```
@@ -73,10 +76,13 @@ src/frontend/
 
 ## 7. Offline y seguridad
 
-- CSP sin orígenes remotos (`csp: null` en la config; la frontend es solo `tauri://localhost`/assets incrustados).
-- Capacidades mínimas: `core:default`, eventos, ventana, app, menú y `dialog:default`.
-- `open_url` solo permite `https://github.com/` y `http://localhost`, y se usa únicamente desde el diálogo de actualización.
-- Settings y temas se guardan en el directorio de configuración del usuario (`dirs::config_dir()/seyropea`).
+- CSP estricto: `default-src 'self'`, `script-src 'self'`, `connect-src` limitado a IPC local, `object-src 'none'` y `base-uri 'none'`. No hay CDNs ni orígenes remotos; la frontend es solo `tauri://localhost`/assets incrustados.
+- Capacidades mínimas: `core:event:allow-listen`, `core:event:allow-unlisten`, `dialog:allow-open` y `dialog:allow-save`. El menú nativo se construye en Rust y no requiere permisos del frontend; drag&drop está desactivado.
+- `open_url` valida esquema, host y credenciales con `url::Url`, permite solo el repositorio del proyecto o `localhost` y lanza el navegador sin `cmd /c start`.
+- Todas las rutas que llegan por IPC se comprueban como absolutas, sin traversal y con la extensión esperada; `write_file` solo acepta formatos de imagen.
+- IDs de capa/tema y nombres visibles se normalizan en ambos lados de la frontera; el visor de README y los tooltips usan texto, no HTML arbitrario.
+- `.seyro`: `format`/`version` validados, longitudes comprobadas antes de reservar buffers, `ZlibDecoder::take(raw_len + 1)` y límite de capas; las imágenes se decodifican con `image::Limits`.
+- Settings y temas se normalizan y acotan antes de persistirse en `dirs::config_dir()/seyropea`; los errores de archivos corruptos son silenciosos y no sustituyen la UI por HTML.
 - La updater tiene timeouts de 3–5 s y su fallo se ignora; nunca bloquea el arranque.
 
 ## 8. Rendimiento
@@ -93,7 +99,7 @@ src/frontend/
 - Añadir formato de exportación: ampliar `codec.rs` y `save_export_file` en `commands.rs`.
 - Añadir tema: entrada en `BUILTIN_THEMES` o importación JSON en `ThemeEngine`.
 
-## 10. Limitaciones de v0.1.0
+## 10. Limitaciones de v0.2.0
 
 - No hay soporte PSD (evaluado para roadmap, ver `ROADMAP.md`).
 - La transformación libre cubre traslación, escala y rotación; aún no incluye deformación por persistencia (*warp*).
