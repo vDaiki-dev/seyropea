@@ -2,6 +2,7 @@
 import {
   uid, imageDataFromBase64, imageDataToBase64, cloneImageData, rectFromPoints, pointInPolygon,
 } from './util.js';
+import { sanitizeId, sanitizeLabel, validateDimensions } from './security.js';
 
 export const BLEND_MODES = [
   'normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn',
@@ -31,8 +32,8 @@ export function copyCanvas(source) {
 
 export class Layer {
   constructor(options) {
-    this.id = options.id || uid('layer');
-    this.name = options.name || 'Capa';
+    this.id = sanitizeId(options.id, uid('layer'));
+    this.name = sanitizeLabel(options.name || 'Capa');
     this.kind = options.kind || 'raster';
     this.x = options.x || 0;
     this.y = options.y || 0;
@@ -83,9 +84,10 @@ export class Layer {
 export class SeyroDocument {
   constructor(editor, width = 1200, height = 800, name = 'Sin título') {
     this.editor = editor;
-    this.width = Math.max(1, Math.floor(width));
-    this.height = Math.max(1, Math.floor(height));
-    this.name = name;
+    const checked = validateDimensions(width, height);
+    this.width = checked.ok ? checked.width : 1;
+    this.height = checked.ok ? checked.height : 1;
+    this.name = sanitizeLabel(name || 'Sin título');
     this.dpi = 72;
     this.layers = [];
     this.activeLayerId = null;

@@ -214,4 +214,64 @@ test('estructura de una sola pestaña y capas sin bloqueo de clics', () => {
   assert.match(css, /--checker-b:/);
 });
 
+const {
+  sanitizeLabel, sanitizeId, safeHexColor, safeThumbnail, safeExternalUrl,
+  displayPath, validateDimensions, normalizeSettings,
+} = await import('../src/frontend/security.js');
+const { Badge, SkeletonLoader } = await import('../src/frontend/components.js');
+
+test('sanitización de texto, IDs y colores', () => {
+  assert.equal(sanitizeLabel('  Capa\n<script>  ', 20), 'Capa<script>');
+  assert.equal(sanitizeId('x" onmouseover="alert(1)'), 'id');
+  assert.equal(sanitizeId('capa_1'), 'capa_1');
+  assert.equal(safeHexColor('#FF6B00'), '#ff6b00');
+  assert.equal(safeHexColor('"><img src=x>'), '#ffffff');
+  assert.equal(safeHexColor('"><img src=x>', ''), '');
+});
+
+test('thumbnails y URLs externas solo locales o del repositorio', () => {
+  assert.equal(safeThumbnail('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA');
+  assert.equal(safeThumbnail('javascript:alert(1)'), '');
+  assert.equal(safeExternalUrl('https://github.com/vDaiki-dev/seyropea'), 'https://github.com/vDaiki-dev/seyropea');
+  assert.equal(safeExternalUrl('https://github.com.evil.com/'), '');
+  assert.equal(displayPath('/home/../etc/passwd'), 'etc/passwd');
+});
+
+test('validación de dimensiones rechaza bombas y valores no enteros', () => {
+  assert.deepEqual(validateDimensions(10, 10), { ok: true, width: 10, height: 10 });
+  assert.equal(validateDimensions(0, 10).ok, false);
+  assert.equal(validateDimensions(10.5, 10).ok, false);
+  assert.equal(validateDimensions(10_000, 10_000).ok, false);
+});
+
+test('settings corruptos se normalizan sin propagar tipos peligrosos', () => {
+  const defaults = {
+    theme: 'seyro-dark-orange', language: 'es', fontSize: 13, historyLimit: 50,
+    monospaceNumbers: true, recentFiles: [], customThemes: [], themeOverrides: {},
+  };
+  const clean = normalizeSettings({
+    language: '<script>', fontSize: 9999, monospaceNumbers: 'si',
+    recentFiles: ['../../secret', '/home/user/proyecto.seyro', 42],
+    customThemes: [{ id: 'x" onmouseover', name: '<b>Tema</b>', palette: { accent: '"><img>' } }],
+  }, defaults);
+  assert.equal(clean.language, 'es');
+  assert.equal(clean.fontSize, 22);
+  assert.equal(clean.monospaceNumbers, true);
+  assert.equal(clean.recentFiles.length, 1);
+  assert.equal(clean.customThemes[0].id.startsWith('custom-'), true);
+  assert.equal(clean.customThemes[0].name, '<b>Tema</b>');
+  assert.equal(clean.customThemes[0].palette.accent, '#ffffff');
+});
+
+test('componentes generan HTML escapado y skeleton determinista', () => {
+  assert.match(Badge.render('<img src=x>', 'accent'), /badge-accent/);
+  assert.ok(!Badge.render('<img src=x>', 'accent').includes('<img'));
+  const a = SkeletonLoader.render({ rows: 2, cells: 8, seed: 42 });
+  const b = SkeletonLoader.render({ rows: 2, cells: 8, seed: 42 });
+  assert.equal(a, b);
+  assert.equal((a.match(/skeleton-dot /g) || []).length, 16);
+  assert.ok(a.includes('aria-busy="true"'));
+  assert.ok(!SkeletonLoader.render({ label: '<script>' }).includes('<script>'));
+});
+
 console.log(`\n${passed} pruebas frontend superadas`);

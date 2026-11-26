@@ -1,6 +1,7 @@
 // ThemeEngine: temas locales deterministas, persistencia y paleta derivada del fondo.
 import { api } from './api.js';
 import { clamp, downloadText, escapeHtml } from './util.js';
+import { sanitizeLabel, safeHexColor } from './security.js';
 
 export const BUILTIN_THEMES = [
   {
@@ -184,7 +185,7 @@ export class ThemeEngine {
   }
 
   exportCurrent() {
-    const theme = { ...this.find(), palette: this.resolvedPalette(), exportedBy: 'SeyroPea 0.1.0' };
+    const theme = { ...this.find(), palette: this.resolvedPalette(), exportedBy: 'SeyroPea 0.2.0' };
     downloadText(`${theme.id}.json`, JSON.stringify(theme, null, 2));
   }
 
@@ -193,10 +194,13 @@ export class ThemeEngine {
     const palette = parsed.palette || parsed;
     const missing = PALETTE_KEYS.filter((k) => !palette[k]);
     if (missing.length) throw new Error(`Faltan colores: ${missing.join(', ')}`);
+    if (PALETTE_KEYS.some((k) => safeHexColor(palette[k], '') === '')) {
+      throw new Error('Colores del tema no válidos');
+    }
     const theme = {
       id: `custom-${Date.now().toString(36)}`,
-      name: String(parsed.name || 'Tema importado').slice(0, 48),
-      palette: Object.fromEntries(PALETTE_KEYS.map((k) => [k, palette[k]])),
+      name: sanitizeLabel(parsed.name || 'Tema importado', 48),
+      palette: Object.fromEntries(PALETTE_KEYS.map((k) => [k, safeHexColor(palette[k])])),
       custom: true,
     };
     this.saveCustom(theme);
@@ -254,8 +258,8 @@ export class ThemeEngine {
     return PALETTE_KEYS.map((key) => `
       <label class="color-field">
         <span>${escapeHtml(LABELS[key])}</span>
-        <input type="color" data-palette-key="${key}" value="${palette[key]}">
-        <code data-color-code="${key}">${palette[key]}</code>
+        <input type="color" data-palette-key="${key}" value="${escapeHtml(safeHexColor(palette[key]))}">
+        <code data-color-code="${key}">${escapeHtml(safeHexColor(palette[key]))}</code>
       </label>`).join('');
   }
 }

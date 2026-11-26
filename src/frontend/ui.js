@@ -2,7 +2,9 @@
 import { api } from './api.js';
 import { BLEND_MODES, BLEND_LABELS } from './document.js';
 import { ICONS } from './icons.js';
+import { Badge, Modal, SkeletonLoader, Toast, Tooltip } from './components.js';
 import { escapeHtml, clamp, formatBytes, cloneImageData } from './util.js';
+import { sanitizeId, sanitizeLabel, safeThumbnail, displayPath } from './security.js';
 
 const SHORTCUTS = [
   ['V', 'Mover'], ['M', 'Marco rectangular'], ['L', 'Lazo'], ['W', 'Varita mágica'],
@@ -25,6 +27,10 @@ export class UI {
     this._lastAction = new Map();
     this._cursor = null;
     this.modal = null;
+    this.toasts = new Toast();
+    this.modals = new Modal();
+    this.tooltip = new Tooltip();
+    this.skeleton = new SkeletonLoader();
   }
 
   get doc() { return this.editor.doc; }
@@ -47,6 +53,8 @@ export class UI {
     this.bgInput = document.getElementById('bg-color');
     this.fgSwatch = document.getElementById('fg-swatch');
     this.bgSwatch = document.getElementById('bg-swatch');
+    this.toasts.mount(document.getElementById('toast-root'));
+    this.modals.mount(document.getElementById('modal-root'));
 
     this.applyI18nStatic();
     this.buildToolbar();
@@ -57,6 +65,7 @@ export class UI {
     new ResizeObserver(() => this.scheduleRender()).observe(this.viewport);
     this.renderAll();
     this.renderWelcome();
+    this.tooltip.sync(document);
   }
 
   /** Aplica traducciones a los textos fijos del documento HTML. */
@@ -234,6 +243,13 @@ export class UI {
     catch (e) { this.toast(e.message || String(e), 'error'); }
   }
 
+  renderRecentSkeleton() {
+    const list = this.welcomeEl?.querySelector('#welcome-recent');
+    if (list) {
+      this.skeleton.mount(list, { rows: 2, cells: 12, seed: 7, label: 'Cargando proyectos recientes' });
+    }
+  }
+
   renderWelcome() {
     if (!this.welcomeEl) return;
     const welcome = !!this.editor.showingWelcome;
@@ -256,8 +272,9 @@ export class UI {
         entry.updatedAt ? new Date(entry.updatedAt).toLocaleDateString() : '',
         entry.path || '',
       ].filter(Boolean).join(' · '));
-      const thumb = entry.thumbnail
-        ? `<img class="recent-thumb" alt="" src="${escapeHtml(entry.thumbnail)}">`
+      const thumbSrc = safeThumbnail(entry.thumbnail);
+      const thumb = thumbSrc
+        ? `<img class="recent-thumb" alt="" src="${thumbSrc}">`
         : `<span class="recent-thumb placeholder">${ICONS.file}</span>`;
       return `<div class="recent-item">
         ${thumb}
@@ -511,7 +528,7 @@ export class UI {
   renderLayers() {
     if (!this.doc) return;
     const rows = this.doc.layers.slice().reverse().map((layer) => `
-      <div class="layer-row ${layer.id === this.doc.activeLayerId ? 'active' : ''}" data-id="${layer.id}">
+      <div class="layer-row ${sanitizeId(layer.id) === sanitizeId(this.doc.activeLayerId) ? 'active' : ''}" data-id="${escapeHtml(sanitizeId(layer.id))}">
         <button class="toggle ${layer.visible ? '' : 'locked'}" data-toggle="visible" title="${escapeHtml(this.t('layers.visible', 'Visibilidad'))}" aria-label="${escapeHtml(this.t('layers.visible', 'Visibilidad'))}">${layer.visible ? ICONS.eye : ICONS.eyeOff}</button>
         <img alt="" src="${layer.canvas.toDataURL('image/png')}">
         <span class="name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
@@ -528,7 +545,7 @@ export class UI {
           <span>${Math.round(active.opacity * 100)}%</span>
         </label>
       </div>` : '');
-    document.getElementById('layer-count').textContent = `${this.doc.layers.length}`;
+    Badge.set(document.getElementById('layer-count'), String(this.doc.layers.length), 'count');
     const output = this.layersEl.querySelector('.layer-props span');
     const range = this.layersEl.querySelector('[data-layer="opacity"]');
     if (range && output) {
@@ -827,30 +844,14 @@ export class UI {
   /* ---------- Modales ---------- */
 
   createModal(title, body, { wide = false, kind = '' } = {}) {
-    this.closeModal();
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
-    if (kind) backdrop.dataset.kind = kind;
-    backdrop.innerHTML = `<div class="modal ${wide ? 'wide' : ''}">
-      <h2>${escapeHtml(title)}</h2><div class="body">${body}</div>
-      <div class="actions"></div></div>`;
-    backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) this.closeModal(); });
-    document.getElementById('modal-root').appendChild(backdrop);
-    const modal = {
-      el: backdrop,
-      body: backdrop.querySelector('.body'),
-      actions: backdrop.querySelector('.actions'),
-      close: () => this.closeModal(),
-    };
+    const modal = this.modals.open(title, body, { wide, kind });
     this.modal = modal;
     return modal;
   }
 
   closeModal() {
-    if (this.modal) {
-      this.modal.el.remove();
-      this.modal = null;
-    }
+    this.modals.close();
+    this.modal = null;
   }
 
   addButtons(modal, buttons) {
@@ -868,26 +869,22 @@ export class UI {
   }
 
   toast(message, type = 'info') {
-    const el = document.createElement('div');
-    el.className = `toast ${type}`;
-    el.textContent = message;
-    document.getElementById('toast-root').appendChild(el);
-    setTimeout(() => el.remove(), 3800);
+    this.toasts.show(message, type);
   }
 
   /* ---------- Diálogos ---------- */
 
   openNewDocument() {
     const modal = this.createModal('Nuevo documento',
-      this.row('Ancho (px)', '<input type="number" data-field="width" min="1" max="20000" value="1200">') +
-      this.row('Alto (px)', '<input type="number" data-field="height" min="1" max="20000" value="800">') +
+      this.row('Ancho (px)', '<input type="number" data-field="width" min="1" max="6000" value="1200">') +
+      this.row('Alto (px)', '<input type="number" data-field="height" min="1" max="6000" value="800">') +
       this.row('Fondo', '<select data-field="background"><option value="transparent">Transparente</option><option value="white">Blanco</option></select>'));
     this.addButtons(modal, [
       { label: 'Cancelar', run: () => modal.close() },
       { label: 'Crear', primary: true, run: () => {
         const get = (k) => modal.el.querySelector(`[data-field="${k}"]`).value;
-        const w = clamp(Number(get('width')) || 1200, 1, 20000);
-        const h = clamp(Number(get('height')) || 800, 1, 20000);
+        const w = clamp(Number(get('width')) || 1200, 1, 6000);
+        const h = clamp(Number(get('height')) || 800, 1, 6000);
         modal.close();
         this.editor.newDocument(w, h, 'Sin título', get('background'));
       } },
@@ -1131,7 +1128,7 @@ export class UI {
           <button id="open-shortcuts">${ICONS.keyboard}${tr('settings.shortcuts', 'Atajos de teclado')}</button>
           <button id="reset-settings">${ICONS.refresh}${tr('settings.reset', 'Restaurar ajustes por defecto')}</button>
         </div>
-        <p class="hint">${tr('settings.projectInfo', 'SeyroPea v0.1.0 · GPL-3.0-only · 100% offline · sin IA generativa.')}</p>
+        <p class="hint">${tr('settings.projectInfo', 'SeyroPea v0.2.0 · GPL-3.0-only · 100% offline · sin IA generativa.')}</p>
       </details>`;
     const modal = this.createModal(this.t('settings.title', 'Preferencias y temas'), body, { wide: true, kind: 'settings' });
     const get = (key) => modal.el.querySelector(`[data-setting="${key}"]`);
@@ -1209,7 +1206,7 @@ export class UI {
     const info = this.editor.appInfo || {};
     const tr = (key, fallback) => escapeHtml(this.t(key, fallback));
     const modal = this.createModal(this.t('about.title', 'Acerca de SeyroPea'), `
-      <p><strong>SeyroPea v${escapeHtml(info.version || '0.1.0')}</strong> — ${tr('about.tagline', 'estudio de edición de imágenes nativo, ligero y offline.')}</p>
+      <p><strong>SeyroPea v${escapeHtml(info.version || '0.2.0')}</strong> — ${tr('about.tagline', 'estudio de edición de imágenes nativo, ligero y offline.')}</p>
       <p>${tr('about.offline', 'Procesamiento algorítmico determinista sobre buffers RGBA. Sin IA generativa, sin telemetría y sin dependencias de red en producción.')}</p>
       <p>${tr('about.license', 'Licencia')}: <strong>GPL-3.0-only</strong> · ${tr('about.repo', 'Repositorio')}: github.com/vDaiki-dev/seyropea</p>
       <p class="hint">${tr('about.credits', 'Créditos: vDaiki-dev. Incluye UPNG.js y pako (MIT) de forma local para exportación PNG optimizada.')}</p>`, { kind: 'about' });

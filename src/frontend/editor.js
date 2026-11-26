@@ -11,6 +11,7 @@ import {
   uid, debounce, clamp, imageDataToBase64, base64ToBytes, arrayBufferToBase64,
   extractRect, injectRect, diffRect,
 } from './util.js';
+import { normalizeSettings, sanitizeLabel, displayPath, isAbsolutePath } from './security.js';
 
 const DEFAULT_SETTINGS = {
   theme: 'seyro-dark-orange', fontFamily: 'sans-serif', fontSize: 13, fontScale: 100,
@@ -67,9 +68,10 @@ export class Editor {
 
   async init() {
     try {
-      this.settings = { ...DEFAULT_SETTINGS, ...(await api.loadSettings()) };
-    } catch (e) {
-      console.warn('No se pudo cargar settings.json', e);
+      this.settings = normalizeSettings(await api.loadSettings(), DEFAULT_SETTINGS);
+    } catch {
+      // settings.json corrupto: se usan los valores por defecto sin ruido en consola.
+      this.settings = { ...DEFAULT_SETTINGS };
     }
     this.tools = new ToolRegistry(this);
     for (const tool of this.tools.list()) {
@@ -195,11 +197,18 @@ export class Editor {
   }
 
   async refreshRecentProjects() {
-    const paths = this.settings.recentFiles || [];
+    const paths = Array.isArray(this.settings.recentFiles)
+      ? this.settings.recentFiles
+        .filter((p) => typeof p === 'string' && isAbsolutePath(p))
+        .slice(0, 12)
+        .map((p) => displayPath(p, 512))
+      : [];
+    this.ui?.renderRecentSkeleton?.();
     try {
-      this.recentCache = await api.recentProjects(paths);
+      const items = await api.recentProjects(paths);
+      this.recentCache = Array.isArray(items) ? items : [];
     } catch {
-      this.recentCache = paths.map((path) => ({ path, name: path.split(/[\\/]/).pop() || path }));
+      this.recentCache = paths.map((path) => ({ path, name: sanitizeLabel(path.split(/[\\/]/).pop() || path, 120) }));
     }
     this.ui?.renderWelcome?.();
   }
